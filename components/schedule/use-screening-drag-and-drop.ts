@@ -10,6 +10,7 @@ import { Movie, Screening, WeekdayKey } from "@/lib/schedule/types";
 import { roundMinutesToNearestFive, TimelineRange } from "@/lib/schedule/timeline";
 
 const DRAG_THRESHOLD_PX = 7;
+const PASTE_PREVIEW_SCREENING_ID = "__paste-preview__";
 
 export type ScreeningDropStatus = "free" | "replace" | "invalid";
 
@@ -25,11 +26,21 @@ export type ScreeningDropResult = ScreeningDropTarget & {
   screeningId: string;
 };
 
+export type ScreeningPasteResult = ScreeningDropTarget & {
+  copiedScreening: Screening;
+};
+
 export type ScreeningDragState = {
   clientX: number;
   clientY: number;
   dropTarget: ScreeningDropTarget | null;
   screeningId: string;
+};
+
+export type ScreeningPasteState = {
+  clientX: number;
+  clientY: number;
+  dropTarget: ScreeningDropTarget | null;
 };
 
 type ActiveDrag = {
@@ -39,12 +50,17 @@ type ActiveDrag = {
   startY: number;
 };
 
+type DropMode = "move" | "copy";
+
 type UseScreeningDragAndDropParams = {
   activeDay: WeekdayKey;
   movies: Movie[];
   onBlockedDrop: (message: string) => void;
+  onCopyNotice: (message: string) => void;
   onDrop: (drop: ScreeningDropResult) => void | Promise<void>;
+  onPaste: (drop: ScreeningPasteResult) => void | Promise<void>;
   onSelectScreening: (screeningId: string) => void;
+  selectedScreeningId: string | null;
   screenings: Screening[];
   timelineRange: TimelineRange;
   turnoverMinutes: number;
@@ -55,19 +71,27 @@ export function useScreeningDragAndDrop({
   activeDay,
   movies,
   onBlockedDrop,
+  onCopyNotice,
   onDrop,
+  onPaste,
   onSelectScreening,
+  selectedScreeningId,
   screenings,
   timelineRange,
   turnoverMinutes,
   weekStart
 }: UseScreeningDragAndDropParams) {
   const activeDragRef = useRef<ActiveDrag | null>(null);
+  const copiedScreeningRef = useRef<Screening | null>(null);
+  const lastPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const pasteStateRef = useRef<ScreeningPasteState | null>(null);
   const suppressNextClickRef = useRef(false);
+  const [copiedScreening, setCopiedScreening] = useState<Screening | null>(null);
   const [dragState, setDragState] = useState<ScreeningDragState | null>(null);
+  const [pasteState, setPasteState] = useState<ScreeningPasteState | null>(null);
 
   const getDropTarget = useCallback(
-    (clientX: number, clientY: number, draggedScreening: Screening) => {
+    (clientX: number, clientY: number, sourceScreening: Screening, mode: DropMode) => {
       const timelineElement = getTimelineElementFromPoint(clientX, clientY);
       if (!timelineElement) return null;
 
@@ -77,10 +101,10 @@ export function useScreeningDragAndDrop({
       const rect = timelineElement.getBoundingClientRect();
       if (clientY < rect.top || clientY > rect.bottom) return null;
 
-      const replacementScreening = getReplacementScreeningFromPoint(
+      const replacementScreening = getScreeningFromPoint(
         clientX,
         clientY,
-        draggedScreening.id,
+        sourceScreening.id,
         screenings
       );
 
@@ -99,27 +123,31 @@ export function useScreeningDragAndDrop({
       }
 
       const startMinutes = getRoundedMinutesFromPointer(clientY, rect, timelineRange);
-      const movedScreening: Screening = {
-        ...draggedScreening,
+      const previewScreening: Screening = {
+        ...sourceScreening,
+        id: mode === "copy" ? PASTE_PREVIEW_SCREENING_ID : sourceScreening.id,
         day: activeDay,
         roomId,
         startsAt: formatMinutesAsTime(startMinutes),
         weekStart
       };
-      const nextScreenings = [
-        ...screenings.filter((screening) => screening.id !== draggedScreening.id),
-        movedScreening
-      ];
+      const nextScreenings =
+        mode === "move"
+          ? [
+              ...screenings.filter((screening) => screening.id !== sourceScreening.id),
+              previewScreening
+            ]
+          : [...screenings, previewScreening];
       const hasConflict = getTurnoverConflicts(nextScreenings, movies, turnoverMinutes).some(
         (conflict) =>
-          conflict.previousScreeningId === draggedScreening.id ||
-          conflict.currentScreeningId === draggedScreening.id
+          conflict.previousScreeningId === previewScreening.id ||
+          conflict.currentScreeningId === previewScreening.id
       );
 
       return {
         roomId,
         startMinutes,
-        startsAt: movedScreening.startsAt,
+        startsAt: previewScreening.startsAt,
         status: hasConflict ? "invalid" as const : "free" as const,
         targetScreeningId: null
       };
@@ -130,6 +158,7 @@ export function useScreeningDragAndDrop({
   const startScreeningDrag = useCallback(
     (screening: Screening, event: ReactPointerEvent<HTMLElement>) => {
       if (
+        pasteStateRef.current ||
         event.button !== 0 ||
         isInteractiveDragTarget(event.target) ||
         screening.day !== activeDay ||
@@ -148,6 +177,26 @@ export function useScreeningDragAndDrop({
     [activeDay, weekStart]
   );
 
+  const activatePasteMode = useCallback(
+    (screening: Screening) => {
+      const pointer = lastPointerRef.current ?? {
+        clientX: window.innerWidth / 2,
+        clientY: window.innerHeight / 2
+      };
+
+      setPasteState({
+        clientX: pointer.clientX,
+        clientY: pointer.clientY,
+        dropTarget: getDropTarget(pointer.clientX, pointer.clientY, screening, "copy")
+      });
+    },
+    [getDropTarget]
+  );
+
+  const cancelPasteMode = useCallback(() => {
+    setPasteState(null);
+  }, []);
+
   const consumeDragClickSuppression = useCallback(() => {
     if (!suppressNextClickRef.current) {
       return false;
@@ -158,7 +207,93 @@ export function useScreeningDragAndDrop({
   }, []);
 
   useEffect(() => {
+    copiedScreeningRef.current = copiedScreening;
+  }, [copiedScreening]);
+
+  useEffect(() => {
+    pasteStateRef.current = pasteState;
+  }, [pasteState]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const isShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey;
+
+      if (key === "escape" && pasteStateRef.current) {
+        event.preventDefault();
+        setPasteState(null);
+        return;
+      }
+
+      if (!isShortcut || isEditableShortcutTarget(event.target)) {
+        return;
+      }
+
+      if (key === "c") {
+        const pointer = lastPointerRef.current;
+        const hoveredScreening =
+          pasteStateRef.current && pointer
+            ? getScreeningFromPoint(pointer.clientX, pointer.clientY, null, screenings)
+            : null;
+        const selectedScreening =
+          hoveredScreening ??
+          screenings.find((screening) => screening.id === selectedScreeningId);
+
+        if (!selectedScreening) return;
+
+        event.preventDefault();
+        const nextCopiedScreening = { ...selectedScreening };
+
+        setCopiedScreening(nextCopiedScreening);
+        setPasteState(null);
+        onSelectScreening(selectedScreening.id);
+        onCopyNotice(`Copiado: ${getScreeningTitle(selectedScreening, movies)}`);
+        return;
+      }
+
+      if (key === "v") {
+        event.preventDefault();
+
+        const screeningToPaste = copiedScreeningRef.current;
+        if (!screeningToPaste) {
+          onCopyNotice("No hay sesion copiada");
+          return;
+        }
+
+        activatePasteMode(screeningToPaste);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    activatePasteMode,
+    movies,
+    onCopyNotice,
+    onSelectScreening,
+    screenings,
+    selectedScreeningId
+  ]);
+
+  useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
+      lastPointerRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY
+      };
+
+      const screeningToPaste = copiedScreeningRef.current;
+      if (pasteStateRef.current && screeningToPaste) {
+        setPasteState({
+          clientX: event.clientX,
+          clientY: event.clientY,
+          dropTarget: getDropTarget(event.clientX, event.clientY, screeningToPaste, "copy")
+        });
+      }
+
       const activeDrag = activeDragRef.current;
       if (!activeDrag) return;
 
@@ -177,7 +312,7 @@ export function useScreeningDragAndDrop({
       setDragState({
         clientX: event.clientX,
         clientY: event.clientY,
-        dropTarget: getDropTarget(event.clientX, event.clientY, activeDrag.screening),
+        dropTarget: getDropTarget(event.clientX, event.clientY, activeDrag.screening, "move"),
         screeningId: activeDrag.screening.id
       });
     };
@@ -196,7 +331,7 @@ export function useScreeningDragAndDrop({
       event.preventDefault();
       suppressNextClickRef.current = true;
 
-      const dropTarget = getDropTarget(event.clientX, event.clientY, activeDrag.screening);
+      const dropTarget = getDropTarget(event.clientX, event.clientY, activeDrag.screening, "move");
       setDragState(null);
 
       if (!dropTarget) return;
@@ -224,24 +359,78 @@ export function useScreeningDragAndDrop({
   }, [getDropTarget, onBlockedDrop, onDrop, onSelectScreening]);
 
   useEffect(() => {
+    const handlePasteClick = (event: MouseEvent) => {
+      const screeningToPaste = copiedScreeningRef.current;
+
+      if (!pasteStateRef.current || !screeningToPaste) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const dropTarget = getDropTarget(event.clientX, event.clientY, screeningToPaste, "copy");
+
+      if (!dropTarget) {
+        setPasteState(null);
+        return;
+      }
+
+      if (dropTarget.status === "invalid") {
+        onBlockedDrop("No cabe ahi");
+        setPasteState({
+          clientX: event.clientX,
+          clientY: event.clientY,
+          dropTarget
+        });
+        return;
+      }
+
+      void onPaste({
+        ...dropTarget,
+        copiedScreening: screeningToPaste
+      });
+    };
+
+    const handleContextMenu = (event: MouseEvent) => {
+      if (!pasteStateRef.current) return;
+
+      event.preventDefault();
+      setPasteState(null);
+    };
+
+    window.addEventListener("click", handlePasteClick, true);
+    window.addEventListener("contextmenu", handleContextMenu);
+
+    return () => {
+      window.removeEventListener("click", handlePasteClick, true);
+      window.removeEventListener("contextmenu", handleContextMenu);
+    };
+  }, [getDropTarget, onBlockedDrop, onPaste]);
+
+  useEffect(() => {
     activeDragRef.current = null;
     setDragState(null);
+    setPasteState(null);
   }, [activeDay, weekStart]);
 
   useEffect(() => {
-    if (!dragState) return;
+    if (!dragState && !pasteState) return;
 
     const previousCursor = document.body.style.cursor;
-    document.body.style.cursor = "grabbing";
+    document.body.style.cursor = dragState ? "grabbing" : "copy";
 
     return () => {
       document.body.style.cursor = previousCursor;
     };
-  }, [dragState]);
+  }, [dragState, pasteState]);
 
   return {
+    cancelPasteMode,
+    copiedScreening,
     consumeDragClickSuppression,
     dragState,
+    pasteState,
     startScreeningDrag
   };
 }
@@ -257,10 +446,10 @@ function getTimelineElementFromPoint(clientX: number, clientY: number) {
     .find((element): element is HTMLElement => Boolean(element));
 }
 
-function getReplacementScreeningFromPoint(
+function getScreeningFromPoint(
   clientX: number,
   clientY: number,
-  draggedScreeningId: string,
+  ignoredScreeningId: string | null,
   screenings: Screening[]
 ) {
   const screeningElement = document
@@ -275,7 +464,7 @@ function getReplacementScreeningFromPoint(
         return false;
       }
 
-      return element.dataset.screeningId !== draggedScreeningId;
+      return !ignoredScreeningId || element.dataset.screeningId !== ignoredScreeningId;
     });
 
   if (!screeningElement?.dataset.screeningId) {
@@ -309,4 +498,21 @@ function isInteractiveDragTarget(target: EventTarget | null) {
     target.isContentEditable ||
       target.closest("input, textarea, select, button, [data-selection-ignore='true']")
   );
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
+}
+
+function getScreeningTitle(screening: Screening, movies: Movie[]) {
+  return movies.find((movie) => movie.id === screening.movieId)?.title ?? "Pelicula";
 }

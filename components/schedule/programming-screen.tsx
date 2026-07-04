@@ -81,6 +81,7 @@ import { ScreeningCard } from "./screening-card";
 import { SaveState, StatusBadge } from "./status-badge";
 import {
   ScreeningDropResult,
+  ScreeningPasteResult,
   useScreeningDragAndDrop
 } from "./use-screening-drag-and-drop";
 import { useUndoableScreenings } from "./use-undoable-screenings";
@@ -127,6 +128,7 @@ export function ProgrammingScreen({
   const [importSourceUrl, setImportSourceUrl] = useState("");
   const [activeSection, setActiveSection] = useState<MainSection>("schedule");
   const [selectedScreeningId, setSelectedScreeningId] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState("");
   const [dragNotice, setDragNotice] = useState("");
   const [isDistributorPanelOpen, setIsDistributorPanelOpen] = useState(true);
   const [editingDistributorId, setEditingDistributorId] = useState<string | null>(null);
@@ -193,6 +195,13 @@ export function ProgrammingScreen({
     const timeoutId = window.setTimeout(() => setDragNotice(""), 2200);
     return () => window.clearTimeout(timeoutId);
   }, [dragNotice]);
+
+  useEffect(() => {
+    if (!copyNotice) return;
+
+    const timeoutId = window.setTimeout(() => setCopyNotice(""), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [copyNotice]);
 
   useEffect(() => {
     if (duplicateTarget === duplicateSource) {
@@ -517,13 +526,110 @@ export function ProgrammingScreen({
     ]
   );
 
-  const { consumeDragClickSuppression, dragState, startScreeningDrag } =
+  const persistPastedScreeningDrop = useCallback(
+    async (drop: ScreeningPasteResult) => {
+      const replacementScreening = drop.targetScreeningId
+        ? state.screenings.find((screening) => screening.id === drop.targetScreeningId)
+        : null;
+
+      if (drop.targetScreeningId && !replacementScreening) {
+        showDragNotice("No cabe ahi");
+        return;
+      }
+
+      const nextRoomId = replacementScreening?.roomId ?? drop.roomId;
+      const nextStartsAt = replacementScreening?.startsAt ?? drop.startsAt;
+      const previousScreenings = state.screenings;
+      const previousPersistedScreenings = persistedScreeningsRef.current;
+      const pastedScreening: Screening = {
+        ...drop.copiedScreening,
+        id: crypto.randomUUID(),
+        weekStart,
+        day: activeDay,
+        roomId: nextRoomId,
+        startsAt: nextStartsAt
+      };
+      const nextScreenings = [
+        ...state.screenings.filter((screening) => screening.id !== replacementScreening?.id),
+        pastedScreening
+      ].sort(compareScreeningStartTimes);
+      const nextPersistedScreenings = [
+        ...persistedScreeningsRef.current.filter(
+          (screening) => screening.id !== replacementScreening?.id
+        ),
+        pastedScreening
+      ].sort(compareScreeningStartTimes);
+
+      if (!replacementScreening) {
+        const conflicts = getTurnoverConflicts(nextScreenings, state.movies, turnoverMinutes).filter(
+          (conflict) =>
+            conflict.previousScreeningId === pastedScreening.id ||
+            conflict.currentScreeningId === pastedScreening.id
+        );
+
+        if (conflicts.length) {
+          showDragNotice("No cabe ahi");
+          return;
+        }
+      }
+
+      setState((current) => ({ ...current, screenings: nextScreenings }));
+
+      const saved = await runSaving(async () => {
+        if (!replacementScreening) {
+          await saveScreening(pastedScreening);
+          return;
+        }
+
+        try {
+          await deleteScreening(replacementScreening.id);
+          await saveScreening(pastedScreening);
+        } catch (error) {
+          await deleteScreening(pastedScreening.id).catch(() => undefined);
+          await saveScreening(replacementScreening).catch(() => undefined);
+          throw error;
+        }
+      });
+
+      if (!saved) {
+        setState((current) => ({ ...current, screenings: previousScreenings }));
+        rememberPersistedScreenings(previousPersistedScreenings);
+        return;
+      }
+
+      rememberPersistedScreenings(nextPersistedScreenings);
+      pushUndoSnapshot(previousPersistedScreenings);
+      setSelectedScreeningId(pastedScreening.id);
+    },
+    [
+      activeDay,
+      pushUndoSnapshot,
+      rememberPersistedScreenings,
+      runSaving,
+      showDragNotice,
+      state.movies,
+      state.screenings,
+      turnoverMinutes,
+      weekStart
+    ]
+  );
+
+  const {
+    copiedScreening,
+    consumeDragClickSuppression,
+    dragState,
+    pasteState,
+    startScreeningDrag
+  } =
     useScreeningDragAndDrop({
       activeDay,
       movies: state.movies,
       onBlockedDrop: showDragNotice,
+      onCopyNotice: setCopyNotice,
       onDrop: persistDraggedScreeningDrop,
+      onPaste: persistPastedScreeningDrop,
       onSelectScreening: setSelectedScreeningId,
+      selectedScreeningId,
       screenings: state.screenings,
       timelineRange,
       turnoverMinutes,
@@ -1031,9 +1137,12 @@ export function ProgrammingScreen({
   const draggedScreening = dragState
     ? state.screenings.find((screening) => screening.id === dragState.screeningId)
     : null;
-  const draggedMovie = draggedScreening
-    ? state.movies.find((movie) => movie.id === draggedScreening.movieId)
+  const placementState = dragState ?? pasteState;
+  const placementScreening = draggedScreening ?? (pasteState ? copiedScreening : null);
+  const placementMovie = placementScreening
+    ? state.movies.find((movie) => movie.id === placementScreening.movieId)
     : null;
+  const isPasteMode = Boolean(pasteState && copiedScreening);
 
   return (
     <>
@@ -1067,6 +1176,16 @@ export function ProgrammingScreen({
             {undoNotice ? (
               <span className="inline-flex h-10 items-center rounded-md border border-green-500/20 bg-green-950/20 px-3 text-xs text-green-200">
                 {undoNotice}
+              </span>
+            ) : null}
+            {copyNotice ? (
+              <span className="inline-flex h-10 items-center rounded-md border border-amber-500/25 bg-amber-950/25 px-3 text-xs text-amber-100">
+                {copyNotice}
+              </span>
+            ) : null}
+            {isPasteMode && placementMovie ? (
+              <span className="inline-flex h-10 items-center rounded-md border border-green-500/25 bg-green-950/25 px-3 text-xs text-green-100">
+                Pegando: {placementMovie.title} · Esc para cancelar
               </span>
             ) : null}
             {dragNotice ? (
@@ -1235,7 +1354,7 @@ export function ProgrammingScreen({
                 .filter((screening) => screening.day === activeDay && screening.roomId === room.id)
                 .sort(compareScreeningStartTimes);
               const roomDropTarget =
-                dragState?.dropTarget?.roomId === room.id ? dragState.dropTarget : null;
+                placementState?.dropTarget?.roomId === room.id ? placementState.dropTarget : null;
               const replacementScreening = roomDropTarget?.targetScreeningId
                 ? state.screenings.find(
                     (screening) => screening.id === roomDropTarget.targetScreeningId
@@ -1253,7 +1372,7 @@ export function ProgrammingScreen({
                     34,
                     replacementLayout?.height ??
                       getTimelineOffsetForMinutes(
-                        roomDropTarget.startMinutes + (draggedMovie?.durationMinutes ?? 60),
+                        roomDropTarget.startMinutes + (placementMovie?.durationMinutes ?? 60),
                         timelineRange
                       ) -
                         getTimelineOffsetForMinutes(roomDropTarget.startMinutes, timelineRange)
@@ -1443,17 +1562,24 @@ export function ProgrammingScreen({
           </div>
         ) : null}
       </div>
-      {dragState && draggedScreening ? (
+      {placementState && placementScreening ? (
         <div
-          className="pointer-events-none fixed z-[90] w-52 rounded-md border border-white/20 bg-zinc-900/95 px-3 py-2 text-sm text-white shadow-2xl ring-1 ring-black/50"
+          className={clsx(
+            "pointer-events-none fixed z-[90] w-52 rounded-md border px-3 py-2 text-sm text-white shadow-2xl ring-1 ring-black/50",
+            isPasteMode
+              ? "border-green-300/25 bg-zinc-900/80 opacity-80"
+              : "border-white/20 bg-zinc-900/95"
+          )}
           style={{
-            left: dragState.clientX + 12,
-            top: dragState.clientY + 12
+            left: placementState.clientX + 12,
+            top: placementState.clientY + 12
           }}
         >
-          <div className="font-semibold tabular-nums">{draggedScreening.startsAt}</div>
+          <div className="font-semibold tabular-nums">
+            {isPasteMode ? "Pegar copia" : placementScreening.startsAt}
+          </div>
           <div className="mt-1 truncate text-xs font-bold uppercase">
-            {draggedMovie?.title ?? "Pelicula"}
+            {placementMovie?.title ?? "Pelicula"}
           </div>
         </div>
       ) : null}
