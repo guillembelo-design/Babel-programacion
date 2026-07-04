@@ -8,6 +8,7 @@ import {
   Loader2,
   LogOut,
   Plus,
+  Printer,
   Undo2
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -78,6 +79,7 @@ import {
 } from "@/components/movies/types";
 import { ScreeningCard } from "./screening-card";
 import { SaveState, StatusBadge } from "./status-badge";
+import { WeeklyPrintView } from "./weekly-print-view";
 
 const MAIN_SECTIONS = [
   { key: "schedule", label: "Programacion salas" },
@@ -980,17 +982,18 @@ export function ProgrammingScreen({
   ).length;
 
   return (
-    <main className="min-h-screen bg-babel-bg text-white">
-      <div className="border-b border-babel-line bg-babel-bg/92 px-4 py-3 backdrop-blur">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.2em] text-babel-red">
-              Cines Babel
-            </p>
-            <h1 className="mt-1 text-xl font-semibold tracking-normal md:text-2xl">
-              Programacion
-            </h1>
-          </div>
+    <>
+      <main className="no-print min-h-screen bg-babel-bg text-white">
+        <div className="border-b border-babel-line bg-babel-bg/92 px-4 py-3 backdrop-blur">
+          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.2em] text-babel-red">
+                Cines Babel
+              </p>
+              <h1 className="mt-1 text-xl font-semibold tracking-normal md:text-2xl">
+                Programacion
+              </h1>
+            </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge
@@ -1140,6 +1143,13 @@ export function ProgrammingScreen({
                   Duplicar
                 </button>
               </div>
+              <button
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white"
+                onClick={() => window.print()}
+              >
+                <Printer size={16} />
+                Imprimir semana
+              </button>
             </div>
           </div>
 
@@ -1317,6 +1327,15 @@ export function ProgrammingScreen({
         ) : null}
       </div>
     </main>
+    <WeeklyPrintView
+      distributors={state.distributors}
+      movies={state.movies}
+      rooms={state.rooms}
+      screenings={state.screenings}
+      turnoverMinutes={turnoverMinutes}
+      weekStart={weekStart}
+    />
+    </>
   );
 }
 

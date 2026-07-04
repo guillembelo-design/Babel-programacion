@@ -51,3 +51,156 @@ select {
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 9mm;
+  }
+
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  body > main:not(.no-print) {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .weekly-print-view {
+    color: #111111;
+    display: block;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9px;
+    line-height: 1.25;
+  }
+
+  .weekly-print-header {
+    align-items: baseline;
+    border-bottom: 2px solid #111111;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding-bottom: 5px;
+  }
+
+  .weekly-print-header p {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    margin: 0;
+  }
+
+  .weekly-print-header span {
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .weekly-print-day {
+    break-inside: avoid;
+    margin-bottom: 7px;
+    page-break-inside: avoid;
+  }
+
+  .weekly-print-day h2 {
+    background: #efefef;
+    border: 1px solid #222222;
+    font-size: 11px;
+    font-weight: 800;
+    margin: 0;
+    padding: 3px 5px;
+  }
+
+  .weekly-print-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .weekly-print-room {
+    border-bottom: 1px solid #333333;
+    border-left: 1px solid #333333;
+    min-height: 58px;
+    padding: 0;
+  }
+
+  .weekly-print-room:last-child {
+    border-right: 1px solid #333333;
+  }
+
+  .weekly-print-room h3 {
+    border-bottom: 1px solid #333333;
+    font-size: 10px;
+    font-weight: 800;
+    margin: 0;
+    padding: 3px 4px;
+    text-align: center;
+  }
+
+  .weekly-print-sessions {
+    display: grid;
+    gap: 3px;
+    padding: 4px;
+  }
+
+  .weekly-print-session {
+    border-bottom: 1px solid #d4d4d4;
+    padding-bottom: 3px;
+  }
+
+  .weekly-print-session:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .weekly-print-session-main {
+    display: grid;
+    gap: 4px;
+    grid-template-columns: 31px 1fr;
+  }
+
+  .weekly-print-session-main strong {
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .weekly-print-session-main span {
+    font-size: 9px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .weekly-print-session p {
+    margin: 1px 0 0 35px;
+  }
+
+  .weekly-print-conflict {
+    border: 1px solid #111111;
+    font-weight: 800;
+    padding: 1px 2px;
+    text-transform: uppercase;
+  }
+
+  .weekly-print-empty {
+    color: #777777;
+    margin: 0;
+    padding: 8px 4px;
+    text-align: center;
+  }
+}
