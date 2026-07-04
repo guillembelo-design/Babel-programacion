@@ -79,6 +79,7 @@ import {
 } from "@/components/movies/types";
 import { ScreeningCard } from "./screening-card";
 import { SaveState, StatusBadge } from "./status-badge";
+import { useUndoableScreenings } from "./use-undoable-screenings";
 import { WeeklyPrintView } from "./weekly-print-view";
 
 const MAIN_SECTIONS = [
@@ -87,8 +88,6 @@ const MAIN_SECTIONS = [
   { key: "distributors", label: "Distribuidoras" }
 ] as const;
 
-const UNDO_STACK_LIMIT = 10;
-
 type MainSection = (typeof MAIN_SECTIONS)[number]["key"];
 
 type ProgrammingScreenProps = {
@@ -96,19 +95,6 @@ type ProgrammingScreenProps = {
   userEmail?: string;
   onSignOut?: () => void | Promise<void>;
 };
-
-function isEditableUndoTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  return (
-    target.isContentEditable ||
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
-  );
-}
 
 export function ProgrammingScreen({
   isSigningOut = false,
@@ -147,8 +133,6 @@ export function ProgrammingScreen({
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveError, setSaveError] = useState("");
-  const [undoNotice, setUndoNotice] = useState("");
-  const [undoStack, setUndoStack] = useState<Screening[][]>([]);
   const persistedScreeningsRef = useRef<Screening[]>([]);
 
   const rememberPersistedScreenings = useCallback((screenings: Screening[]) => {
@@ -256,101 +240,15 @@ export function ProgrammingScreen({
     }
   };
 
-  const cloneScreenings = (screenings: Screening[]) =>
-    screenings.map((screening) => ({ ...screening })).sort(compareScreeningStartTimes);
-
-  const pushUndoSnapshot = (screenings: Screening[]) => {
-    setUndoStack((current) => [
-      cloneScreenings(screenings),
-      ...current
-    ].slice(0, UNDO_STACK_LIMIT));
-  };
-
-  const restoreScreeningsSnapshot = async (targetScreenings: Screening[]) => {
-    const previousScreenings = state.screenings;
-    const previousPersistedScreenings = persistedScreeningsRef.current;
-    const targetSnapshot = cloneScreenings(targetScreenings);
-    const targetIds = new Set(targetSnapshot.map((screening) => screening.id));
-    const screeningsToDelete = persistedScreeningsRef.current.filter(
-      (screening) => !targetIds.has(screening.id)
-    );
-
-    setState((current) => ({
-      ...current,
-      screenings: targetSnapshot
-    }));
-
-    const saved = await runSaving(async () => {
-      await Promise.all([
-        ...screeningsToDelete.map((screening) => deleteScreening(screening.id)),
-        ...targetSnapshot.map((screening) => saveScreening(screening))
-      ]);
+  const { canUndo, pushUndoSnapshot, undoLastSessionAction, undoNotice } =
+    useUndoableScreenings({
+      persistedScreeningsRef,
+      rememberPersistedScreenings,
+      runSaving,
+      saveState,
+      screenings: state.screenings,
+      setState
     });
-
-    if (!saved) {
-      const loadedState = await loadSchedule().catch(() => null);
-
-      if (loadedState) {
-        setState(loadedState);
-        rememberPersistedScreenings(loadedState.screenings);
-      } else {
-        setState((current) => ({ ...current, screenings: previousScreenings }));
-        rememberPersistedScreenings(previousPersistedScreenings);
-      }
-
-      return false;
-    }
-
-    rememberPersistedScreenings(targetSnapshot);
-    return true;
-  };
-
-  const undoLastSessionAction = async () => {
-    const [snapshotToRestore, ...remainingSnapshots] = undoStack;
-
-    if (!snapshotToRestore || saveState === "saving") {
-      return;
-    }
-
-    const restored = await restoreScreeningsSnapshot(snapshotToRestore);
-
-    if (!restored) {
-      return;
-    }
-
-    setUndoStack(remainingSnapshots);
-    setUndoNotice("Cambio deshecho");
-  };
-
-  useEffect(() => {
-    if (!undoNotice) return;
-
-    const timeoutId = window.setTimeout(() => setUndoNotice(""), 2200);
-    return () => window.clearTimeout(timeoutId);
-  }, [undoNotice]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key.toLowerCase() !== "z" ||
-        (!event.ctrlKey && !event.metaKey) ||
-        event.altKey ||
-        event.shiftKey ||
-        isEditableUndoTarget(event.target)
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      void undoLastSessionAction();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [saveState, undoStack]);
 
   const buildScreeningsWithPatch = (screening: Screening) =>
     [
@@ -1004,7 +902,7 @@ export function ProgrammingScreen({
             <button
               className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
               onClick={() => void undoLastSessionAction()}
-              disabled={!undoStack.length || saveState === "saving"}
+              disabled={!canUndo}
               title="Deshacer ultima accion de sesiones"
             >
               <Undo2 size={14} />
