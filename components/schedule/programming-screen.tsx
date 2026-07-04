@@ -96,6 +96,8 @@ export function ProgrammingScreen() {
   const [duplicateSource, setDuplicateSource] = useState<WeekdayKey>("friday");
   const [duplicateTarget, setDuplicateTarget] = useState<WeekdayKey>("saturday");
   const [movieForm, setMovieForm] = useState<MovieDraft>(emptyMovieForm);
+  const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
+  const [movieEditDraft, setMovieEditDraft] = useState<MovieDraft>(emptyMovieForm);
   const [movieSearchQuery, setMovieSearchQuery] = useState("");
   const [movieSearchResults, setMovieSearchResults] = useState<MovieSearchResult[]>([]);
   const [movieSearchState, setMovieSearchState] = useState<MovieSearchState>("idle");
@@ -318,6 +320,66 @@ export function ProgrammingScreen() {
     const movie = await createMovieFromDraft(movieForm);
     if (movie) {
       setMovieForm(emptyMovieForm);
+    }
+  };
+
+  const startEditMovie = (movie: Movie) => {
+    const distributor = movie.distributorId
+      ? state.distributors.find((item) => item.id === movie.distributorId)
+      : null;
+
+    setEditingMovieId(movie.id);
+    setMovieEditDraft({
+      title: movie.title,
+      durationMinutes: movie.durationMinutes,
+      distributorName: distributor?.name ?? "",
+      distributorId: distributor?.id ?? null
+    });
+  };
+
+  const cancelEditMovie = () => {
+    setEditingMovieId(null);
+    setMovieEditDraft(emptyMovieForm);
+  };
+
+  const updateMovieFromDraft = async (movie: Movie, draft: MovieDraft) => {
+    const title = draft.title.trim();
+    const durationMinutes = Number(draft.durationMinutes);
+
+    if (!title || !Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      setSaveState("error");
+      setSaveError("Introduce titulo y duracion validos.");
+      return;
+    }
+
+    setSaveState("saving");
+    setSaveError("");
+
+    try {
+      const distributor = await resolveDistributorFromDraft(draft);
+      const updatedMovie: Movie = {
+        ...movie,
+        title,
+        durationMinutes,
+        distributorId: distributor?.id ?? null
+      };
+
+      await saveMovie(updatedMovie);
+
+      setState((current) => ({
+        ...current,
+        distributors: distributor
+          ? upsertDistributor(current.distributors, distributor)
+          : current.distributors,
+        movies: current.movies
+          .map((item) => (item.id === movie.id ? updatedMovie : item))
+          .sort((a, b) => a.title.localeCompare(b.title))
+      }));
+      setSaveState("saved");
+      cancelEditMovie();
+    } catch (error) {
+      setSaveState("error");
+      setSaveError(getErrorMessage(error));
     }
   };
 
@@ -1013,6 +1075,7 @@ export function ProgrammingScreen() {
                       state.distributors,
                       movie.distributorId
                     );
+                    const isEditingMovie = editingMovieId === movie.id;
                     const buttonLabel = canDelete
                       ? "Borrar"
                       : isRetired
@@ -1021,24 +1084,64 @@ export function ProgrammingScreen() {
 
                     return (
                       <div key={movie.id} className="rounded-md bg-babel-card p-2">
-                        <p className="truncate text-sm font-medium text-white">{movie.title}</p>
-                        <p className="text-xs text-zinc-400">
-                          {movie.durationMinutes} min
-                          {usageCount ? ` · ${usageCount} sesiones` : ""}
-                        </p>
-                        {distributorName ? (
-                          <p className="truncate text-xs text-zinc-500">{distributorName}</p>
-                        ) : null}
-                        {isRetired ? (
-                          <p className="mt-1 text-xs text-zinc-500">Retirada del selector</p>
-                        ) : null}
-                        <button
-                          className="mt-2 h-8 w-full rounded border border-babel-line text-xs text-zinc-300 transition hover:border-red-500 hover:bg-red-950/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                          onClick={() => handleRemoveMovie(movie)}
-                          disabled={isRetired && !canDelete}
-                        >
-                          {buttonLabel}
-                        </button>
+                        {isEditingMovie ? (
+                          <div className="space-y-2">
+                            <MovieEditFields
+                              distributors={state.distributors}
+                              draft={movieEditDraft}
+                              onChange={setMovieEditDraft}
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                className="h-8 flex-1 rounded bg-babel-red px-2 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => void updateMovieFromDraft(movie, movieEditDraft)}
+                                disabled={
+                                  !movieEditDraft.title.trim() ||
+                                  Number(movieEditDraft.durationMinutes) <= 0
+                                }
+                              >
+                                Guardar
+                              </button>
+                              <button
+                                className="h-8 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+                                onClick={cancelEditMovie}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="truncate text-sm font-medium text-white">
+                              {movie.title}
+                            </p>
+                            <p className="text-xs text-zinc-400">
+                              {movie.durationMinutes} min
+                              {usageCount ? ` · ${usageCount} sesiones` : ""}
+                            </p>
+                            {distributorName ? (
+                              <p className="truncate text-xs text-zinc-500">{distributorName}</p>
+                            ) : null}
+                            {isRetired ? (
+                              <p className="mt-1 text-xs text-zinc-500">Retirada del selector</p>
+                            ) : null}
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              <button
+                                className="h-8 rounded border border-babel-line text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+                                onClick={() => startEditMovie(movie)}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                className="h-8 rounded border border-babel-line text-xs text-zinc-300 transition hover:border-red-500 hover:bg-red-950/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => handleRemoveMovie(movie)}
+                                disabled={isRetired && !canDelete}
+                              >
+                                {buttonLabel}
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })
@@ -1427,6 +1530,56 @@ function MovieDraftFields({
           Comprobar en FilmAffinity
         </a>
       </div>
+    </div>
+  );
+}
+
+function MovieEditFields({
+  draft,
+  distributors,
+  onChange
+}: {
+  draft: MovieDraft;
+  distributors: Distributor[];
+  onChange: (draft: MovieDraft) => void;
+}) {
+  const updateDraft = (patch: Partial<MovieDraft>) => {
+    onChange({ ...draft, ...patch });
+  };
+
+  return (
+    <div className="space-y-2">
+      <input
+        value={draft.title}
+        onChange={(event) => updateDraft({ title: event.target.value })}
+        placeholder="Titulo"
+        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+      />
+      <input
+        type="number"
+        min="1"
+        value={draft.durationMinutes}
+        onChange={(event) => updateDraft({ durationMinutes: Number(event.target.value) })}
+        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition focus:border-babel-red"
+      />
+      <DistributorInput
+        compact
+        distributors={distributors}
+        value={draft.distributorName}
+        selectedDistributorId={draft.distributorId}
+        onChange={(distributorName) =>
+          updateDraft({
+            distributorName,
+            distributorId: null
+          })
+        }
+        onSelect={(distributor) =>
+          updateDraft({
+            distributorName: distributor.name,
+            distributorId: distributor.id
+          })
+        }
+      />
     </div>
   );
 }
