@@ -13,7 +13,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body
+        className="bg-babel-bg text-white"
+        style={{ backgroundColor: "#111113", color: "#f8fafc" }}
+      >
+        {children}
+      </body>
     </html>
   );
 }
