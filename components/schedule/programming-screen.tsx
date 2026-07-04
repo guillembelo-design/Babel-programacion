@@ -2,15 +2,12 @@
 
 import {
   CalendarDays,
-  Check,
   ChevronLeft,
   ChevronRight,
   Copy,
-  Film,
   Loader2,
   LogOut,
-  Plus,
-  Search
+  Plus
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "clsx";
@@ -56,12 +53,7 @@ import {
 } from "@/lib/schedule/store";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { DistributorManager } from "@/components/distributors/distributor-manager";
-import {
-  DistributorInput,
-  MovieDraftFields,
-  MovieEditFields
-} from "@/components/movies/movie-fields";
-import { getDistributorName } from "@/components/movies/movie-utils";
+import { MoviePanel } from "@/components/movies/movie-panel";
 import {
   emptyMovieForm,
   MovieDraft,
@@ -71,6 +63,14 @@ import {
 } from "@/components/movies/types";
 import { ScreeningCard } from "./screening-card";
 import { SaveState, StatusBadge } from "./status-badge";
+
+const MAIN_SECTIONS = [
+  { key: "schedule", label: "Programacion salas" },
+  { key: "movies", label: "Peliculas" },
+  { key: "distributors", label: "Distribuidoras" }
+] as const;
+
+type MainSection = (typeof MAIN_SECTIONS)[number]["key"];
 
 type ProgrammingScreenProps = {
   isSigningOut?: boolean;
@@ -103,8 +103,8 @@ export function ProgrammingScreen({
   const [movieSearchError, setMovieSearchError] = useState("");
   const [importDraft, setImportDraft] = useState<MovieDraft | null>(null);
   const [importSourceUrl, setImportSourceUrl] = useState("");
-  const [isMoviePanelOpen, setIsMoviePanelOpen] = useState(false);
-  const [isDistributorPanelOpen, setIsDistributorPanelOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<MainSection>("schedule");
+  const [isDistributorPanelOpen, setIsDistributorPanelOpen] = useState(true);
   const [editingDistributorId, setEditingDistributorId] = useState<string | null>(null);
   const [distributorRenameDraft, setDistributorRenameDraft] = useState("");
   const [activeDistributorActionId, setActiveDistributorActionId] = useState<string | null>(null);
@@ -899,13 +899,26 @@ export function ProgrammingScreen({
         </div>
       </div>
 
-      <div
-        className={clsx(
-          "mx-auto grid max-w-[1600px] gap-4 px-4 py-3",
-          isMoviePanelOpen ? "xl:grid-cols-[minmax(0,1fr)_360px]" : "xl:grid-cols-1"
-        )}
-      >
-        <section className="min-w-0">
+      <div className="mx-auto max-w-[1600px] px-4 py-3">
+        <div className="mb-3 flex gap-2 overflow-x-auto rounded-md border border-babel-line bg-babel-panel p-1">
+          {MAIN_SECTIONS.map((section) => (
+            <button
+              key={section.key}
+              className={clsx(
+                "min-w-fit rounded px-3 py-2 text-sm transition",
+                activeSection === section.key
+                  ? "bg-babel-red text-white"
+                  : "text-zinc-300 hover:bg-babel-card hover:text-white"
+              )}
+              onClick={() => setActiveSection(section.key)}
+            >
+              {section.label}
+            </button>
+          ))}
+        </div>
+
+        {activeSection === "schedule" ? (
+          <section className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-2 overflow-x-auto rounded-md border border-babel-line bg-babel-panel p-1">
               {WEEKDAYS.map((day, index) => (
@@ -926,14 +939,6 @@ export function ProgrammingScreen({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
-                onClick={() => setIsMoviePanelOpen((current) => !current)}
-              >
-                <Film size={16} className="text-babel-red" />
-                {isMoviePanelOpen ? "Ocultar" : "Gestionar peliculas"}
-              </button>
-
               <div className="flex flex-wrap items-center gap-2 rounded-md border border-babel-line bg-babel-panel p-1">
                 <select
                   value={duplicateSource}
@@ -1038,261 +1043,40 @@ export function ProgrammingScreen({
             })}
           </div>
         </section>
+        ) : null}
 
-        {isMoviePanelOpen ? (
-          <aside className="space-y-4">
-            <section className="rounded-md border border-babel-line bg-babel-panel p-4">
-              <div className="mb-4 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Film size={18} className="text-babel-red" />
-                  <h2 className="font-medium">Peliculas</h2>
-                </div>
-                <button
-                  className="rounded px-2 py-1 text-xs text-zinc-400 transition hover:bg-babel-card hover:text-white"
-                  onClick={() => setIsMoviePanelOpen(false)}
-                >
-                  Ocultar
-                </button>
-              </div>
+        {activeSection === "movies" ? (
+          <MoviePanel
+            distributors={state.distributors}
+            editingMovieId={editingMovieId}
+            importDraft={importDraft}
+            importSourceUrl={importSourceUrl}
+            movieEditDraft={movieEditDraft}
+            movieForm={movieForm}
+            movieSearchError={movieSearchError}
+            movieSearchQuery={movieSearchQuery}
+            movieSearchResults={movieSearchResults}
+            movieSearchState={movieSearchState}
+            movieUsageCounts={movieUsageCounts}
+            movies={state.movies}
+            onCancelEditMovie={cancelEditMovie}
+            onCreateImportedMovie={() => void createImportedMovie()}
+            onCreateMovie={() => void createMovie()}
+            onImportDraftChange={setImportDraft}
+            onImportSourceUrlChange={setImportSourceUrl}
+            onMovieEditDraftChange={setMovieEditDraft}
+            onMovieFormChange={setMovieForm}
+            onMovieSearchQueryChange={setMovieSearchQuery}
+            onRemoveMovie={(movie) => void handleRemoveMovie(movie)}
+            onSearchMovies={() => void searchMovies()}
+            onStartEditMovie={startEditMovie}
+            onStartImportMovie={startImportMovie}
+            onUpdateMovie={(movie, draft) => void updateMovieFromDraft(movie, draft)}
+          />
+        ) : null}
 
-              <div className="space-y-3 border-b border-babel-line pb-4">
-                <div>
-                  <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                    Buscar pelicula
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      value={movieSearchQuery}
-                      onChange={(event) => setMovieSearchQuery(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          void searchMovies();
-                        }
-                      }}
-                      placeholder="Titulo de pelicula"
-                      className="h-10 min-w-0 flex-1 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-                    />
-                    <button
-                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-babel-red text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => void searchMovies()}
-                      disabled={movieSearchState === "searching"}
-                      title="Buscar pelicula"
-                    >
-                      {movieSearchState === "searching" ? (
-                        <Loader2 className="animate-spin" size={16} />
-                      ) : (
-                        <Search size={16} />
-                      )}
-                    </button>
-                  </div>
-                  {movieSearchState === "error" ? (
-                    <p className="mt-2 text-xs text-red-300">{movieSearchError}</p>
-                  ) : null}
-                </div>
-
-                {movieSearchResults.length ? (
-                  <div className="max-h-72 space-y-2 overflow-y-auto">
-                    {movieSearchResults.map((result) => (
-                      <button
-                        key={result.sourceId}
-                        className="w-full rounded-md border border-babel-line bg-babel-card p-2 text-left transition hover:border-zinc-500"
-                        onClick={() => startImportMovie(result)}
-                      >
-                        <span className="block truncate text-sm font-medium text-white">
-                          {result.title}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-zinc-400">
-                          {result.year ?? "Ano no disponible"} ·{" "}
-                          {result.durationMinutes
-                            ? `${result.durationMinutes} min`
-                            : "Duracion pendiente"}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-zinc-500">
-                          Wikidata
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
-                {importDraft ? (
-                  <div className="rounded-md border border-babel-red/50 bg-red-950/20 p-3">
-                    <p className="mb-3 text-sm font-medium text-white">
-                      Es esta la pelicula?
-                    </p>
-                    <MovieDraftFields
-                      distributors={state.distributors}
-                      draft={importDraft}
-                      sourceUrl={importSourceUrl}
-                      onChange={(draft) => setImportDraft(draft)}
-                    />
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-babel-red px-3 text-sm font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={() => void createImportedMovie()}
-                        disabled={!importDraft.title.trim() || Number(importDraft.durationMinutes) <= 0}
-                      >
-                        <Check size={15} />
-                        Importar
-                      </button>
-                      <button
-                        className="h-9 rounded-md border border-babel-line px-3 text-sm text-zinc-300 transition hover:bg-babel-card hover:text-white"
-                        onClick={() => {
-                          setImportDraft(null);
-                          setImportSourceUrl("");
-                        }}
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="mt-4 space-y-3">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                  Crear manualmente
-                </p>
-                <input
-                  value={movieForm.title}
-                  onChange={(event) =>
-                    setMovieForm((current) => ({ ...current, title: event.target.value }))
-                  }
-                  placeholder="Titulo"
-                  className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-                />
-                <input
-                  type="number"
-                  min="1"
-                  value={movieForm.durationMinutes}
-                  onChange={(event) =>
-                    setMovieForm((current) => ({
-                      ...current,
-                      durationMinutes: Number(event.target.value)
-                    }))
-                  }
-                  className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
-                />
-                <DistributorInput
-                  distributors={state.distributors}
-                  value={movieForm.distributorName}
-                  selectedDistributorId={movieForm.distributorId}
-                  onChange={(distributorName) =>
-                    setMovieForm((current) => ({
-                      ...current,
-                      distributorName,
-                      distributorId: null
-                    }))
-                  }
-                  onSelect={(distributor) =>
-                    setMovieForm((current) => ({
-                      ...current,
-                      distributorName: distributor.name,
-                      distributorId: distributor.id
-                    }))
-                  }
-                />
-                <button
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-babel-red px-3 text-sm font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={createMovie}
-                  disabled={!movieForm.title.trim()}
-                >
-                  <Plus size={16} />
-                  Anadir pelicula
-                </button>
-              </div>
-            </section>
-
-            <section className="rounded-md border border-babel-line bg-babel-panel p-4">
-              <h2 className="mb-3 font-medium">Catalogo</h2>
-              <div className="space-y-2">
-                {state.movies.length ? (
-                  state.movies.map((movie) => {
-                    const usageCount = movieUsageCounts.get(movie.id) ?? 0;
-                    const canDelete = usageCount === 0;
-                    const isRetired = Boolean(movie.retiredAt);
-                    const distributorName = getDistributorName(
-                      state.distributors,
-                      movie.distributorId
-                    );
-                    const isEditingMovie = editingMovieId === movie.id;
-                    const buttonLabel = canDelete
-                      ? "Borrar"
-                      : isRetired
-                        ? "Retirada"
-                        : "Retirar pelicula";
-
-                    return (
-                      <div key={movie.id} className="rounded-md bg-babel-card p-2">
-                        {isEditingMovie ? (
-                          <div className="space-y-2">
-                            <MovieEditFields
-                              distributors={state.distributors}
-                              draft={movieEditDraft}
-                              onChange={setMovieEditDraft}
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                className="h-8 flex-1 rounded bg-babel-red px-2 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                onClick={() => void updateMovieFromDraft(movie, movieEditDraft)}
-                                disabled={
-                                  !movieEditDraft.title.trim() ||
-                                  Number(movieEditDraft.durationMinutes) <= 0
-                                }
-                              >
-                                Guardar
-                              </button>
-                              <button
-                                className="h-8 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
-                                onClick={cancelEditMovie}
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="truncate text-sm font-medium text-white">
-                              {movie.title}
-                            </p>
-                            <p className="text-xs text-zinc-400">
-                              {movie.durationMinutes} min
-                              {usageCount ? ` · ${usageCount} sesiones` : ""}
-                            </p>
-                            {distributorName ? (
-                              <p className="truncate text-xs text-zinc-500">{distributorName}</p>
-                            ) : null}
-                            {isRetired ? (
-                              <p className="mt-1 text-xs text-zinc-500">Retirada del selector</p>
-                            ) : null}
-                            <div className="mt-2 grid grid-cols-2 gap-2">
-                              <button
-                                className="h-8 rounded border border-babel-line text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
-                                onClick={() => startEditMovie(movie)}
-                              >
-                                Editar
-                              </button>
-                              <button
-                                className="h-8 rounded border border-babel-line text-xs text-zinc-300 transition hover:border-red-500 hover:bg-red-950/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                                onClick={() => handleRemoveMovie(movie)}
-                                disabled={isRetired && !canDelete}
-                              >
-                                {buttonLabel}
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="rounded-md border border-dashed border-zinc-700 p-4 text-center text-sm text-zinc-500">
-                    Sin peliculas
-                  </div>
-                )}
-              </div>
-            </section>
-
+        {activeSection === "distributors" ? (
+          <div className="max-w-3xl">
             <DistributorManager
               activeActionId={activeDistributorActionId}
               activeAction={activeDistributorAction}
@@ -1318,7 +1102,7 @@ export function ProgrammingScreen({
               onStartRename={startRenameDistributor}
               onToggle={() => setIsDistributorPanelOpen((current) => !current)}
             />
-          </aside>
+          </div>
         ) : null}
       </div>
     </main>

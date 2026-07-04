@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Distributor, Movie } from "@/lib/schedule/types";
 import { DistributorInput } from "./movie-fields";
+import { normalizeSearchText } from "./movie-utils";
 import { emptyMovieForm, MovieDraft } from "./types";
 
 type MoviePickerProps = {
@@ -28,9 +29,9 @@ export function MoviePicker({
 
   const selectedMovie = movies.find((movie) => movie.id === selectedMovieId);
   const selectableMovies = movies.filter((movie) => !movie.retiredAt);
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = normalizeSearchText(query);
   const filteredMovies = selectableMovies
-    .filter((movie) => movie.title.toLowerCase().includes(normalizedQuery))
+    .filter((movie) => normalizeSearchText(movie.title).includes(normalizedQuery))
     .slice(0, 6);
 
   const startCreating = () => {

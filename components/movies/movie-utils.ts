@@ -1,5 +1,13 @@
 import { Distributor } from "@/lib/schedule/types";
-import { normalizeDistributorName } from "@/lib/schedule/store";
+
+export function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
 
 export function getDistributorName(distributors: Distributor[], distributorId: string | null) {
   if (!distributorId) return "";
@@ -7,18 +15,23 @@ export function getDistributorName(distributors: Distributor[], distributorId: s
 }
 
 export function getDistributorSuggestions(distributors: Distributor[], value: string) {
-  const normalizedValue = normalizeDistributorName(value);
+  const normalizedValue = normalizeSearchText(value);
 
   if (!normalizedValue) {
     return [];
   }
 
   return distributors
-    .filter(
-      (distributor) =>
-        distributor.normalizedName.includes(normalizedValue) ||
-        normalizedValue.includes(distributor.normalizedName)
-    )
+    .filter((distributor) => {
+      const normalizedDistributor = normalizeSearchText(
+        distributor.normalizedName || distributor.name
+      );
+
+      return (
+        normalizedDistributor.includes(normalizedValue) ||
+        normalizedValue.includes(normalizedDistributor)
+      );
+    })
     .slice(0, 3);
 }
 
