@@ -212,7 +212,7 @@ export function ScreeningCard({
           )}
           style={{ color: accentColor, WebkitLineClamp: isTightCard ? 1 : 2 }}
         >
-          {movie?.title ?? "Sin pelicula"}
+          {movie?.title ?? "Pelicula"}
         </span>
         <span className="mt-0.5 block text-[10px] leading-none text-zinc-400">
           {movie ? `${movie.durationMinutes} min` : "Selecciona una pelicula"}

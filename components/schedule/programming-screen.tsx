@@ -7,7 +7,8 @@ import {
   Copy,
   Loader2,
   LogOut,
-  Plus
+  Plus,
+  Undo2
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "clsx";
@@ -84,6 +85,8 @@ const MAIN_SECTIONS = [
   { key: "distributors", label: "Distribuidoras" }
 ] as const;
 
+const UNDO_STACK_LIMIT = 10;
+
 type MainSection = (typeof MAIN_SECTIONS)[number]["key"];
 
 type ProgrammingScreenProps = {
@@ -91,6 +94,19 @@ type ProgrammingScreenProps = {
   userEmail?: string;
   onSignOut?: () => void | Promise<void>;
 };
+
+function isEditableUndoTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
+}
 
 export function ProgrammingScreen({
   isSigningOut = false,
@@ -129,6 +145,8 @@ export function ProgrammingScreen({
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveError, setSaveError] = useState("");
+  const [undoNotice, setUndoNotice] = useState("");
+  const [undoStack, setUndoStack] = useState<Screening[][]>([]);
   const persistedScreeningsRef = useRef<Screening[]>([]);
 
   const rememberPersistedScreenings = useCallback((screenings: Screening[]) => {
@@ -184,11 +202,6 @@ export function ProgrammingScreen({
     [state.movies, state.screenings, weekStart]
   );
 
-  const selectableMovies = useMemo(
-    () => state.movies.filter((movie) => !movie.retiredAt),
-    [state.movies]
-  );
-
   const movieUsageCounts = useMemo(() => {
     const counts = new Map<string, number>();
 
@@ -240,6 +253,102 @@ export function ProgrammingScreen({
       return false;
     }
   };
+
+  const cloneScreenings = (screenings: Screening[]) =>
+    screenings.map((screening) => ({ ...screening })).sort(compareScreeningStartTimes);
+
+  const pushUndoSnapshot = (screenings: Screening[]) => {
+    setUndoStack((current) => [
+      cloneScreenings(screenings),
+      ...current
+    ].slice(0, UNDO_STACK_LIMIT));
+  };
+
+  const restoreScreeningsSnapshot = async (targetScreenings: Screening[]) => {
+    const previousScreenings = state.screenings;
+    const previousPersistedScreenings = persistedScreeningsRef.current;
+    const targetSnapshot = cloneScreenings(targetScreenings);
+    const targetIds = new Set(targetSnapshot.map((screening) => screening.id));
+    const screeningsToDelete = persistedScreeningsRef.current.filter(
+      (screening) => !targetIds.has(screening.id)
+    );
+
+    setState((current) => ({
+      ...current,
+      screenings: targetSnapshot
+    }));
+
+    const saved = await runSaving(async () => {
+      await Promise.all([
+        ...screeningsToDelete.map((screening) => deleteScreening(screening.id)),
+        ...targetSnapshot.map((screening) => saveScreening(screening))
+      ]);
+    });
+
+    if (!saved) {
+      const loadedState = await loadSchedule().catch(() => null);
+
+      if (loadedState) {
+        setState(loadedState);
+        rememberPersistedScreenings(loadedState.screenings);
+      } else {
+        setState((current) => ({ ...current, screenings: previousScreenings }));
+        rememberPersistedScreenings(previousPersistedScreenings);
+      }
+
+      return false;
+    }
+
+    rememberPersistedScreenings(targetSnapshot);
+    return true;
+  };
+
+  const undoLastSessionAction = async () => {
+    const [snapshotToRestore, ...remainingSnapshots] = undoStack;
+
+    if (!snapshotToRestore || saveState === "saving") {
+      return;
+    }
+
+    const restored = await restoreScreeningsSnapshot(snapshotToRestore);
+
+    if (!restored) {
+      return;
+    }
+
+    setUndoStack(remainingSnapshots);
+    setUndoNotice("Cambio deshecho");
+  };
+
+  useEffect(() => {
+    if (!undoNotice) return;
+
+    const timeoutId = window.setTimeout(() => setUndoNotice(""), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [undoNotice]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() !== "z" ||
+        (!event.ctrlKey && !event.metaKey) ||
+        event.altKey ||
+        event.shiftKey ||
+        isEditableUndoTarget(event.target)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      void undoLastSessionAction();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [saveState, undoStack]);
 
   const buildScreeningsWithPatch = (screening: Screening) =>
     [
@@ -320,6 +429,7 @@ export function ProgrammingScreen({
     }
 
     rememberPersistedScreenings(nextPersistedScreenings);
+    pushUndoSnapshot(previousPersistedScreenings);
     return true;
   };
 
@@ -329,7 +439,7 @@ export function ProgrammingScreen({
       weekStart,
       day: activeDay,
       roomId: room.id,
-      movieId: selectableMovies[0]?.id ?? null,
+      movieId: null,
       startsAt: getNextScreeningStartTime({
         day: activeDay,
         movies: state.movies,
@@ -367,6 +477,7 @@ export function ProgrammingScreen({
     rememberPersistedScreenings(
       persistedScreeningsRef.current.filter((item) => item.id !== screening.id)
     );
+    pushUndoSnapshot(previousPersistedScreenings);
   };
 
   const resolveDistributorFromDraft = async (draft: MovieDraft) => {
@@ -856,6 +967,7 @@ export function ProgrammingScreen({
     }
 
     rememberPersistedScreenings(nextPersistedScreenings);
+    pushUndoSnapshot(previousPersistedScreenings);
   };
 
   const conflictCount = weekScreenings.filter(
@@ -886,6 +998,20 @@ export function ProgrammingScreen({
               saveError={saveError}
               saveState={saveState}
             />
+            <button
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
+              onClick={() => void undoLastSessionAction()}
+              disabled={!undoStack.length || saveState === "saving"}
+              title="Deshacer ultima accion de sesiones"
+            >
+              <Undo2 size={14} />
+              Deshacer
+            </button>
+            {undoNotice ? (
+              <span className="inline-flex h-10 items-center rounded-md border border-green-500/20 bg-green-950/20 px-3 text-xs text-green-200">
+                {undoNotice}
+              </span>
+            ) : null}
             {onSignOut ? (
               <button
                 className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white disabled:cursor-not-allowed disabled:text-zinc-500"

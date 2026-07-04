@@ -1,7 +1,10 @@
 import { formatMinutesAsTime, timeToMinutes } from "./conflicts";
 import { Movie, Screening, WeekdayKey } from "./types";
 
-const DEFAULT_FIRST_SCREENING_TIME = "18:00";
+export const DEFAULT_FIRST_SCREENING_TIME = "16:00";
+export const PREFERRED_SCREENING_START_TIMES = ["16:00", "18:00", "20:00", "22:00"] as const;
+
+const SCREENING_START_ROUNDING_MINUTES = 5;
 
 export function getNextScreeningStartTime({
   day,
@@ -47,5 +50,20 @@ export function getNextScreeningStartTime({
     return DEFAULT_FIRST_SCREENING_TIME;
   }
 
-  return formatMinutesAsTime(lastValidScreening.nextStartMinutes);
+  const nextPreferredStart = PREFERRED_SCREENING_START_TIMES.map((time) => timeToMinutes(time))
+    .filter((minutes): minutes is number => minutes !== null)
+    .find((minutes) => minutes > lastValidScreening.startMinutes);
+
+  if (
+    nextPreferredStart !== undefined &&
+    nextPreferredStart >= lastValidScreening.nextStartMinutes
+  ) {
+    return formatMinutesAsTime(nextPreferredStart);
+  }
+
+  return formatMinutesAsTime(roundMinutesUp(lastValidScreening.nextStartMinutes));
+}
+
+function roundMinutesUp(minutes: number) {
+  return Math.ceil(minutes / SCREENING_START_ROUNDING_MINUTES) * SCREENING_START_ROUNDING_MINUTES;
 }
