@@ -4,7 +4,17 @@ import {
   getTurnoverConflictForScreening
 } from "@/lib/schedule/conflicts";
 import { getDayDateLabel, getWeekLabel } from "@/lib/schedule/dates";
-import { Distributor, Movie, Room, Screening, WEEKDAYS } from "@/lib/schedule/types";
+import { Distributor, Movie, Room, Screening, WeekdayKey, WEEKDAYS } from "@/lib/schedule/types";
+
+const PRINT_DAY_LABELS: Record<WeekdayKey, string> = {
+  friday: "Viernes",
+  saturday: "Sábado",
+  sunday: "Domingo",
+  monday: "Lunes",
+  tuesday: "Martes",
+  wednesday: "Miércoles",
+  thursday: "Jueves"
+};
 
 type WeeklyPrintViewProps = {
   distributors: Distributor[];
@@ -24,18 +34,22 @@ export function WeeklyPrintView({
   weekStart
 }: WeeklyPrintViewProps) {
   const weekScreenings = screenings.filter((screening) => screening.weekStart === weekStart);
+  const weekLabel = getWeekLabel(weekStart);
 
   return (
     <section className="print-only weekly-print-view">
       <header className="weekly-print-header">
-        <p>CINES BABEL — PROGRAMACION SEMANAL</p>
-        <span>{getWeekLabel(weekStart)}</span>
+        <p>CINES BABEL — PROGRAMACIÓN SEMANAL · {weekLabel}</p>
+        <span>Viernes a jueves</span>
       </header>
 
       {WEEKDAYS.map((day, dayIndex) => (
         <section key={day.key} className="weekly-print-day">
+          <p className="weekly-print-day-context">
+            CINES BABEL — PROGRAMACIÓN SEMANAL · {weekLabel}
+          </p>
           <h2>
-            {day.label.toUpperCase()} · {getDayDateLabel(weekStart, dayIndex)}
+            {PRINT_DAY_LABELS[day.key].toUpperCase()} · {getDayDateLabel(weekStart, dayIndex)}
           </h2>
 
           <div className="weekly-print-grid">
@@ -67,10 +81,10 @@ export function WeeklyPrintView({
                           <div key={screening.id} className="weekly-print-session">
                             <div className="weekly-print-session-main">
                               <strong>{screening.startsAt || "--:--"}</strong>
-                              <span>{movie?.title ?? "Pelicula pendiente"}</span>
+                              <span>{movie?.title ?? "Película pendiente"}</span>
                             </div>
                             <p>
-                              {movie ? `${movie.durationMinutes} min` : "Sin duracion"}
+                              {movie ? `${movie.durationMinutes} min` : "Sin duración"}
                               {endTime ? ` · Fin ${endTime}` : ""}
                               {distributor ? ` · ${distributor.name}` : ""}
                             </p>
@@ -80,7 +94,7 @@ export function WeeklyPrintView({
                                 {conflict.actualGapMinutes < 0
                                   ? `Solapa ${Math.abs(conflict.actualGapMinutes)} min`
                                   : `Solo +${conflict.actualGapMinutes} min`}
-                                {` · Minimo ${conflict.minimumStartAt}`}
+                                {` · Mínimo ${conflict.minimumStartAt}`}
                               </p>
                             ) : null}
                           </div>

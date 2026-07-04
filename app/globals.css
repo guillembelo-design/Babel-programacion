@@ -88,44 +88,54 @@ select {
     color: #111111;
     display: block;
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 9px;
-    line-height: 1.25;
+    font-size: 10px;
+    line-height: 1.32;
   }
 
   .weekly-print-header {
     align-items: baseline;
-    border-bottom: 2px solid #111111;
+    border-bottom: 2.5px solid #111111;
     display: flex;
     justify-content: space-between;
-    margin-bottom: 8px;
-    padding-bottom: 5px;
+    margin-bottom: 9px;
+    padding-bottom: 6px;
   }
 
   .weekly-print-header p {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.05em;
     margin: 0;
   }
 
   .weekly-print-header span {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
   }
 
   .weekly-print-day {
     break-inside: avoid;
-    margin-bottom: 7px;
+    margin-bottom: 9px;
     page-break-inside: avoid;
+  }
+
+  .weekly-print-day-context {
+    border-left: 3px solid #111111;
+    font-size: 8.5px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    margin: 0 0 2px;
+    padding-left: 4px;
+    text-transform: uppercase;
   }
 
   .weekly-print-day h2 {
     background: #efefef;
-    border: 1px solid #222222;
-    font-size: 11px;
+    border: 1.4px solid #222222;
+    font-size: 12.5px;
     font-weight: 800;
     margin: 0;
-    padding: 3px 5px;
+    padding: 4px 6px;
   }
 
   .weekly-print-grid {
@@ -136,7 +146,9 @@ select {
   .weekly-print-room {
     border-bottom: 1px solid #333333;
     border-left: 1px solid #333333;
-    min-height: 58px;
+    break-inside: avoid;
+    min-height: 68px;
+    page-break-inside: avoid;
     padding: 0;
   }
 
@@ -146,22 +158,24 @@ select {
 
   .weekly-print-room h3 {
     border-bottom: 1px solid #333333;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 800;
     margin: 0;
-    padding: 3px 4px;
+    padding: 4px 4px;
     text-align: center;
   }
 
   .weekly-print-sessions {
     display: grid;
-    gap: 3px;
-    padding: 4px;
+    gap: 4px;
+    padding: 5px;
   }
 
   .weekly-print-session {
+    break-inside: avoid;
     border-bottom: 1px solid #d4d4d4;
-    padding-bottom: 3px;
+    page-break-inside: avoid;
+    padding-bottom: 4px;
   }
 
   .weekly-print-session:last-child {
@@ -171,29 +185,31 @@ select {
 
   .weekly-print-session-main {
     display: grid;
-    gap: 4px;
-    grid-template-columns: 31px 1fr;
+    gap: 5px;
+    grid-template-columns: 34px 1fr;
   }
 
   .weekly-print-session-main strong {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 800;
   }
 
   .weekly-print-session-main span {
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 800;
     text-transform: uppercase;
   }
 
   .weekly-print-session p {
-    margin: 1px 0 0 35px;
+    font-size: 9.5px;
+    margin: 2px 0 0 39px;
   }
 
   .weekly-print-conflict {
     border: 1px solid #111111;
+    font-size: 9.5px;
     font-weight: 800;
-    padding: 1px 2px;
+    padding: 2px 3px;
     text-transform: uppercase;
   }
 
