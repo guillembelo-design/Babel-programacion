@@ -12,12 +12,14 @@ import {
   Search,
   Trash2
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "clsx";
 import {
   compareScreeningStartTimes,
   getScreeningEndTime,
   getScreeningStatus,
+  getTurnoverConflictForScreening,
+  getTurnoverConflicts,
   isValidScreeningTime
 } from "@/lib/schedule/conflicts";
 import {
@@ -29,6 +31,7 @@ import {
 } from "@/lib/schedule/dates";
 import {
   Distributor,
+  DEFAULT_TURNOVER_MINUTES,
   INITIAL_DISTRIBUTORS,
   INITIAL_ROOMS,
   Movie,
@@ -95,6 +98,7 @@ export function ProgrammingScreen() {
   const [activeDay, setActiveDay] = useState<WeekdayKey>("friday");
   const [duplicateSource, setDuplicateSource] = useState<WeekdayKey>("friday");
   const [duplicateTarget, setDuplicateTarget] = useState<WeekdayKey>("saturday");
+  const [turnoverMinutes, setTurnoverMinutes] = useState(DEFAULT_TURNOVER_MINUTES);
   const [movieForm, setMovieForm] = useState<MovieDraft>(emptyMovieForm);
   const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
   const [movieEditDraft, setMovieEditDraft] = useState<MovieDraft>(emptyMovieForm);
@@ -116,6 +120,11 @@ export function ProgrammingScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveError, setSaveError] = useState("");
+  const persistedScreeningsRef = useRef<Screening[]>([]);
+
+  const rememberPersistedScreenings = useCallback((screenings: Screening[]) => {
+    persistedScreeningsRef.current = [...screenings].sort(compareScreeningStartTimes);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -123,6 +132,7 @@ export function ProgrammingScreen() {
     loadSchedule()
       .then((loadedState) => {
         if (!mounted) return;
+        rememberPersistedScreenings(loadedState.screenings);
         setState(loadedState);
         setIsLoading(false);
         if (!loadedState.rooms.length) {
@@ -139,7 +149,7 @@ export function ProgrammingScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [rememberPersistedScreenings]);
 
   useEffect(() => {
     if (duplicateTarget === duplicateSource) {
@@ -196,6 +206,40 @@ export function ProgrammingScreen() {
     }
   };
 
+  const buildScreeningsWithPatch = (screening: Screening) =>
+    [
+      ...state.screenings.filter((item) => item.id !== screening.id),
+      screening
+    ].sort(compareScreeningStartTimes);
+
+  const getConflictsInvolvingScreening = (screeningId: string, screenings: Screening[]) =>
+    getTurnoverConflicts(screenings, state.movies, turnoverMinutes).filter(
+      (conflict) =>
+        conflict.previousScreeningId === screeningId || conflict.currentScreeningId === screeningId
+    );
+
+  const confirmTurnoverConflict = (conflict: {
+    previousEndsAt: string;
+    minimumStartAt: string;
+    actualGapMinutes: number;
+    turnoverMinutes: number;
+  }) =>
+    window.confirm(
+      `Hay menos de ${conflict.turnoverMinutes} minutos entre sesiones. Anterior termina a las ${conflict.previousEndsAt}. Con ${conflict.turnoverMinutes} min de margen, esta sesion deberia empezar a partir de las ${conflict.minimumStartAt}. Margen real: ${conflict.actualGapMinutes} min. Quieres guardar igualmente?`
+    );
+
+  const getConflictsInvolvingMovie = (
+    movieId: string,
+    screenings: Screening[],
+    movies: Movie[]
+  ) =>
+    getTurnoverConflicts(screenings, movies, turnoverMinutes).filter((conflict) => {
+      const previous = screenings.find((screening) => screening.id === conflict.previousScreeningId);
+      const current = screenings.find((screening) => screening.id === conflict.currentScreeningId);
+
+      return previous?.movieId === movieId || current?.movieId === movieId;
+    });
+
   const putScreeningInState = (screening: Screening) => {
     setState((current) => ({
       ...current,
@@ -206,16 +250,46 @@ export function ProgrammingScreen() {
     }));
   };
 
+  const revertScreeningToLastSaved = (screeningId: string) => {
+    const savedScreening = persistedScreeningsRef.current.find((item) => item.id === screeningId);
+
+    setState((current) => ({
+      ...current,
+      screenings: savedScreening
+        ? [
+            ...current.screenings.filter((item) => item.id !== screeningId),
+            savedScreening
+          ].sort(compareScreeningStartTimes)
+        : current.screenings.filter((item) => item.id !== screeningId)
+    }));
+  };
+
   const persistScreening = async (screening: Screening) => {
-    putScreeningInState(screening);
+    const nextScreenings = buildScreeningsWithPatch(screening);
+    const nextPersistedScreenings = [
+      ...persistedScreeningsRef.current.filter((item) => item.id !== screening.id),
+      screening
+    ].sort(compareScreeningStartTimes);
 
     if (!isValidScreeningTime(screening.startsAt)) {
+      setState((current) => ({ ...current, screenings: nextScreenings }));
       setSaveState("error");
       setSaveError("Hora no valida. Usa HH:mm.");
       return false;
     }
 
-    return runSaving(() => saveScreening(screening));
+    const conflicts = getConflictsInvolvingScreening(screening.id, nextScreenings);
+    if (conflicts.length && !confirmTurnoverConflict(conflicts[0])) {
+      revertScreeningToLastSaved(screening.id);
+      return false;
+    }
+
+    setState((current) => ({ ...current, screenings: nextScreenings }));
+    const saved = await runSaving(() => saveScreening(screening));
+    if (saved) {
+      rememberPersistedScreenings(nextPersistedScreenings);
+    }
+    return saved;
   };
 
   const addScreening = (room: Room) => {
@@ -244,7 +318,12 @@ export function ProgrammingScreen() {
     const saved = await runSaving(() => deleteScreening(screening.id));
     if (!saved) {
       putScreeningInState(screening);
+      return;
     }
+
+    rememberPersistedScreenings(
+      persistedScreeningsRef.current.filter((item) => item.id !== screening.id)
+    );
   };
 
   const resolveDistributorFromDraft = async (draft: MovieDraft) => {
@@ -350,6 +429,17 @@ export function ProgrammingScreen() {
       setSaveState("error");
       setSaveError("Introduce titulo y duracion validos.");
       return;
+    }
+
+    if (durationMinutes !== movie.durationMinutes) {
+      const nextMovies = state.movies.map((item) =>
+        item.id === movie.id ? { ...movie, title, durationMinutes } : item
+      );
+      const conflicts = getConflictsInvolvingMovie(movie.id, state.screenings, nextMovies);
+
+      if (conflicts.length && !confirmTurnoverConflict(conflicts[0])) {
+        return;
+      }
     }
 
     setSaveState("saving");
@@ -691,13 +781,20 @@ export function ProgrammingScreen() {
       id: crypto.randomUUID(),
       day: duplicateTarget
     }));
+    const nextScreenings = [
+      ...state.screenings.filter((screening) => !existingTargetIds.includes(screening.id)),
+      ...copies
+    ].sort(compareScreeningStartTimes);
+    const nextPersistedScreenings = [
+      ...persistedScreeningsRef.current.filter(
+        (screening) => !existingTargetIds.includes(screening.id)
+      ),
+      ...copies
+    ].sort(compareScreeningStartTimes);
 
     setState((current) => ({
       ...current,
-      screenings: [
-        ...current.screenings.filter((screening) => !existingTargetIds.includes(screening.id)),
-        ...copies
-      ].sort(compareScreeningStartTimes)
+      screenings: nextScreenings
     }));
 
     const saved = await runSaving(async () => {
@@ -709,14 +806,19 @@ export function ProgrammingScreen() {
 
     if (!saved) {
       setState((current) => ({ ...current, screenings: previousScreenings }));
+      return;
     }
+
+    rememberPersistedScreenings(nextPersistedScreenings);
   };
 
   const conflictCount = weekScreenings.filter(
-    (screening) => getScreeningStatus(screening, weekScreenings, state.movies) === "conflict"
+    (screening) =>
+      getScreeningStatus(screening, weekScreenings, state.movies, turnoverMinutes) === "conflict"
   ).length;
   const invalidTimeCount = weekScreenings.filter(
-    (screening) => getScreeningStatus(screening, weekScreenings, state.movies) === "invalid"
+    (screening) =>
+      getScreeningStatus(screening, weekScreenings, state.movies, turnoverMinutes) === "invalid"
   ).length;
 
   return (
@@ -738,6 +840,22 @@ export function ProgrammingScreen() {
               saveError={saveError}
               saveState={saveState}
             />
+            <label className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300">
+              Margen entre sesiones
+              <input
+                type="number"
+                min="0"
+                value={turnoverMinutes}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= 0) {
+                    setTurnoverMinutes(value);
+                  }
+                }}
+                className="h-7 w-14 rounded border border-babel-line bg-zinc-950/40 px-2 text-right text-white outline-none transition focus:border-babel-red"
+              />
+              min
+            </label>
             <button
               className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-babel-line bg-babel-panel text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
               onClick={() => setWeekStart(shiftWeek(weekStart, -1))}
@@ -882,6 +1000,7 @@ export function ProgrammingScreen() {
                           movies={state.movies}
                           screening={screening}
                           screenings={weekScreenings}
+                          turnoverMinutes={turnoverMinutes}
                           onChange={(patch) => updateScreening(screening, patch)}
                           onCreateMovie={createMovieFromDraft}
                           onDelete={() => removeScreening(screening)}
@@ -1190,6 +1309,7 @@ function ScreeningCard({
   screenings,
   distributors,
   movies,
+  turnoverMinutes,
   onChange,
   onCreateMovie,
   onDelete
@@ -1198,12 +1318,19 @@ function ScreeningCard({
   screenings: Screening[];
   distributors: Distributor[];
   movies: Movie[];
+  turnoverMinutes: number;
   onChange: (patch: Partial<Screening>) => void;
   onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
   onDelete: () => void;
 }) {
   const [isEditingMovie, setIsEditingMovie] = useState(!screening.movieId);
-  const status = getScreeningStatus(screening, screenings, movies);
+  const status = getScreeningStatus(screening, screenings, movies, turnoverMinutes);
+  const turnoverConflict = getTurnoverConflictForScreening(
+    screening,
+    screenings,
+    movies,
+    turnoverMinutes
+  );
   const movie = movies.find((item) => item.id === screening.movieId);
   const endTime = getScreeningEndTime(screening, movies);
 
@@ -1260,6 +1387,13 @@ function ScreeningCard({
 
       {status === "invalid" ? (
         <p className="mt-1 text-center text-[11px] leading-none text-red-300">Usa HH:mm</p>
+      ) : null}
+
+      {turnoverConflict ? (
+        <p className="mt-1 text-center text-[11px] leading-tight text-red-200">
+          Posible solape: anterior termina a las {turnoverConflict.previousEndsAt}. Minimo{" "}
+          {turnoverConflict.minimumStartAt}. Margen real {turnoverConflict.actualGapMinutes} min.
+        </p>
       ) : null}
 
       <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">

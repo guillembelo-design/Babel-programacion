@@ -46,7 +46,7 @@ export type ScheduleState = {
 
 export type ScreeningStatus = "valid" | "conflict" | "empty" | "invalid";
 
-export const CLEANING_MINUTES = 15;
+export const DEFAULT_TURNOVER_MINUTES = 15;
 
 export const WEEKDAYS: Array<{ key: WeekdayKey; label: string; shortLabel: string }> = [
   { key: "friday", label: "Viernes", shortLabel: "Vie" },
