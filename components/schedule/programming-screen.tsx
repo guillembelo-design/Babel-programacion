@@ -122,6 +122,7 @@ export function ProgrammingScreen({
   const [importDraft, setImportDraft] = useState<MovieDraft | null>(null);
   const [importSourceUrl, setImportSourceUrl] = useState("");
   const [activeSection, setActiveSection] = useState<MainSection>("schedule");
+  const [selectedScreeningId, setSelectedScreeningId] = useState<string | null>(null);
   const [isDistributorPanelOpen, setIsDistributorPanelOpen] = useState(true);
   const [editingDistributorId, setEditingDistributorId] = useState<string | null>(null);
   const [distributorRenameDraft, setDistributorRenameDraft] = useState("");
@@ -167,6 +168,19 @@ export function ProgrammingScreen({
   useEffect(() => {
     setDuplicateSource(activeDay);
   }, [activeDay]);
+
+  useEffect(() => {
+    setSelectedScreeningId(null);
+  }, [activeDay, weekStart]);
+
+  useEffect(() => {
+    if (
+      selectedScreeningId &&
+      !state.screenings.some((screening) => screening.id === selectedScreeningId)
+    ) {
+      setSelectedScreeningId(null);
+    }
+  }, [selectedScreeningId, state.screenings]);
 
   useEffect(() => {
     if (duplicateTarget === duplicateSource) {
@@ -1093,6 +1107,7 @@ export function ProgrammingScreen({
                   <div
                     className="relative overflow-visible rounded-b-md bg-zinc-950/20"
                     style={{ height: timelineHeight }}
+                    onClick={() => setSelectedScreeningId(null)}
                   >
                     {timelineHourMarks.map((hourMark) => (
                       <div
@@ -1140,6 +1155,7 @@ export function ProgrammingScreen({
                             }
                             distributors={state.distributors}
                             gapInfo={gapInfo}
+                            isSelected={selectedScreeningId === screening.id}
                             movies={state.movies}
                             screening={screening}
                             screenings={weekScreenings}
@@ -1148,6 +1164,7 @@ export function ProgrammingScreen({
                             onChange={(patch) => updateScreening(screening, patch)}
                             onCreateMovie={createMovieFromDraft}
                             onDelete={() => removeScreening(screening)}
+                            onSelect={() => setSelectedScreeningId(screening.id)}
                           />
                         );
                       })
