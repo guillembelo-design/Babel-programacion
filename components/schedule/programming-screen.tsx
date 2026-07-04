@@ -12,7 +12,6 @@ import {
   Search,
   Trash2
 } from "lucide-react";
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { clsx } from "clsx";
 import {
@@ -57,7 +56,6 @@ type MovieSearchState = "idle" | "searching" | "error";
 type MovieDraft = {
   title: string;
   durationMinutes: number;
-  posterUrl: string;
   distributorName: string;
   distributorId: string | null;
 };
@@ -65,18 +63,16 @@ type MovieDraft = {
 const emptyMovieForm: MovieDraft = {
   title: "",
   durationMinutes: 100,
-  posterUrl: "",
   distributorName: "",
   distributorId: null
 };
 
 type MovieSearchResult = {
-  tmdbId: number;
+  sourceId: string;
+  sourceUrl: string;
   title: string;
   year: string | null;
   durationMinutes: number | null;
-  posterUrl: string;
-  distributorName: string;
 };
 
 type MovieSearchResponse = {
@@ -101,6 +97,7 @@ export function ProgrammingScreen() {
   const [movieSearchState, setMovieSearchState] = useState<MovieSearchState>("idle");
   const [movieSearchError, setMovieSearchError] = useState("");
   const [importDraft, setImportDraft] = useState<MovieDraft | null>(null);
+  const [importSourceUrl, setImportSourceUrl] = useState("");
   const [isMoviePanelOpen, setIsMoviePanelOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -271,7 +268,7 @@ export function ProgrammingScreen() {
         id: crypto.randomUUID(),
         title,
         durationMinutes,
-        posterUrl: draft.posterUrl.trim(),
+        posterUrl: "",
         distributorId: distributor?.id ?? null,
         retiredAt: null
       };
@@ -313,6 +310,7 @@ export function ProgrammingScreen() {
     setMovieSearchState("searching");
     setMovieSearchError("");
     setImportDraft(null);
+    setImportSourceUrl("");
 
     try {
       const response = await fetch(`/api/movie-search?q=${encodeURIComponent(query)}`);
@@ -335,10 +333,10 @@ export function ProgrammingScreen() {
     setImportDraft({
       title: result.title,
       durationMinutes: result.durationMinutes ?? 100,
-      posterUrl: result.posterUrl,
-      distributorName: result.distributorName,
+      distributorName: "",
       distributorId: null
     });
+    setImportSourceUrl(result.sourceUrl);
   };
 
   const createImportedMovie = async () => {
@@ -347,6 +345,7 @@ export function ProgrammingScreen() {
     const movie = await createMovieFromDraft(importDraft);
     if (movie) {
       setImportDraft(null);
+      setImportSourceUrl("");
       setMovieSearchQuery("");
       setMovieSearchResults([]);
     }
@@ -650,7 +649,7 @@ export function ProgrammingScreen() {
                           void searchMovies();
                         }
                       }}
-                      placeholder="Titulo en TMDB"
+                      placeholder="Titulo de pelicula"
                       className="h-10 min-w-0 flex-1 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
                     />
                     <button
@@ -675,24 +674,21 @@ export function ProgrammingScreen() {
                   <div className="max-h-72 space-y-2 overflow-y-auto">
                     {movieSearchResults.map((result) => (
                       <button
-                        key={result.tmdbId}
-                        className="flex w-full gap-3 rounded-md border border-babel-line bg-babel-card p-2 text-left transition hover:border-zinc-500"
+                        key={result.sourceId}
+                        className="w-full rounded-md border border-babel-line bg-babel-card p-2 text-left transition hover:border-zinc-500"
                         onClick={() => startImportMovie(result)}
                       >
-                        <SearchPoster title={result.title} posterUrl={result.posterUrl} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-white">
-                            {result.title}
-                          </span>
-                          <span className="mt-0.5 block text-xs text-zinc-400">
-                            {result.year ?? "Ano no disponible"} ·{" "}
-                            {result.durationMinutes
-                              ? `${result.durationMinutes} min`
-                              : "Duracion pendiente"}
-                          </span>
-                          <span className="mt-0.5 block truncate text-xs text-zinc-500">
-                            {result.distributorName || "Distribuidora manual"}
-                          </span>
+                        <span className="block truncate text-sm font-medium text-white">
+                          {result.title}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-zinc-400">
+                          {result.year ?? "Ano no disponible"} ·{" "}
+                          {result.durationMinutes
+                            ? `${result.durationMinutes} min`
+                            : "Duracion pendiente"}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-zinc-500">
+                          Wikidata
                         </span>
                       </button>
                     ))}
@@ -702,11 +698,12 @@ export function ProgrammingScreen() {
                 {importDraft ? (
                   <div className="rounded-md border border-babel-red/50 bg-red-950/20 p-3">
                     <p className="mb-3 text-sm font-medium text-white">
-                      Es esta la pelicula que quieres importar?
+                      Es esta la pelicula?
                     </p>
                     <MovieDraftFields
                       distributors={state.distributors}
                       draft={importDraft}
+                      sourceUrl={importSourceUrl}
                       onChange={(draft) => setImportDraft(draft)}
                     />
                     <div className="mt-3 flex gap-2">
@@ -720,7 +717,10 @@ export function ProgrammingScreen() {
                       </button>
                       <button
                         className="h-9 rounded-md border border-babel-line px-3 text-sm text-zinc-300 transition hover:bg-babel-card hover:text-white"
-                        onClick={() => setImportDraft(null)}
+                        onClick={() => {
+                          setImportDraft(null);
+                          setImportSourceUrl("");
+                        }}
                       >
                         Cancelar
                       </button>
@@ -741,28 +741,18 @@ export function ProgrammingScreen() {
                   placeholder="Titulo"
                   className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
                 />
-                <div className="grid grid-cols-[110px_1fr] gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    value={movieForm.durationMinutes}
-                    onChange={(event) =>
-                      setMovieForm((current) => ({
-                        ...current,
-                        durationMinutes: Number(event.target.value)
-                      }))
-                    }
-                    className="h-10 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
-                  />
-                  <input
-                    value={movieForm.posterUrl}
-                    onChange={(event) =>
-                      setMovieForm((current) => ({ ...current, posterUrl: event.target.value }))
-                    }
-                    placeholder="URL cartel"
-                    className="h-10 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-                  />
-                </div>
+                <input
+                  type="number"
+                  min="1"
+                  value={movieForm.durationMinutes}
+                  onChange={(event) =>
+                    setMovieForm((current) => ({
+                      ...current,
+                      durationMinutes: Number(event.target.value)
+                    }))
+                  }
+                  className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
+                />
                 <DistributorInput
                   distributors={state.distributors}
                   value={movieForm.distributorName}
@@ -813,26 +803,17 @@ export function ProgrammingScreen() {
 
                     return (
                       <div key={movie.id} className="rounded-md bg-babel-card p-2">
-                        <div className="flex gap-3">
-                          <Poster movie={movie} />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-white">
-                              {movie.title}
-                            </p>
-                            <p className="text-xs text-zinc-400">
-                              {movie.durationMinutes} min
-                              {usageCount ? ` · ${usageCount} sesiones` : ""}
-                            </p>
-                            {distributorName ? (
-                              <p className="truncate text-xs text-zinc-500">
-                                {distributorName}
-                              </p>
-                            ) : null}
-                            {isRetired ? (
-                              <p className="mt-1 text-xs text-zinc-500">Retirada del selector</p>
-                            ) : null}
-                          </div>
-                        </div>
+                        <p className="truncate text-sm font-medium text-white">{movie.title}</p>
+                        <p className="text-xs text-zinc-400">
+                          {movie.durationMinutes} min
+                          {usageCount ? ` · ${usageCount} sesiones` : ""}
+                        </p>
+                        {distributorName ? (
+                          <p className="truncate text-xs text-zinc-500">{distributorName}</p>
+                        ) : null}
+                        {isRetired ? (
+                          <p className="mt-1 text-xs text-zinc-500">Retirada del selector</p>
+                        ) : null}
                         <button
                           className="mt-2 h-8 w-full rounded border border-babel-line text-xs text-zinc-300 transition hover:border-red-500 hover:bg-red-950/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                           onClick={() => handleRemoveMovie(movie)}
@@ -1074,28 +1055,18 @@ function MoviePicker({
             placeholder="Titulo"
             className="h-8 w-full rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
           />
-          <div className="grid grid-cols-[72px_1fr] gap-1.5">
-            <input
-              type="number"
-              min="1"
-              value={draft.durationMinutes}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  durationMinutes: Number(event.target.value)
-                }))
-              }
-              className="h-8 rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition focus:border-babel-red"
-            />
-            <input
-              value={draft.posterUrl}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, posterUrl: event.target.value }))
-              }
-              placeholder="URL cartel"
-              className="h-8 rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-            />
-          </div>
+          <input
+            type="number"
+            min="1"
+            value={draft.durationMinutes}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                durationMinutes: Number(event.target.value)
+              }))
+            }
+            className="h-8 w-full rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition focus:border-babel-red"
+          />
           <DistributorInput
             compact
             distributors={distributors}
@@ -1148,10 +1119,12 @@ function MoviePicker({
 function MovieDraftFields({
   draft,
   distributors,
+  sourceUrl,
   onChange
 }: {
   draft: MovieDraft;
   distributors: Distributor[];
+  sourceUrl: string;
   onChange: (draft: MovieDraft) => void;
 }) {
   const updateDraft = (patch: Partial<MovieDraft>) => {
@@ -1166,21 +1139,13 @@ function MovieDraftFields({
         placeholder="Titulo"
         className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
       />
-      <div className="grid grid-cols-[100px_1fr] gap-2">
-        <input
-          type="number"
-          min="1"
-          value={draft.durationMinutes}
-          onChange={(event) => updateDraft({ durationMinutes: Number(event.target.value) })}
-          className="h-9 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
-        />
-        <input
-          value={draft.posterUrl}
-          onChange={(event) => updateDraft({ posterUrl: event.target.value })}
-          placeholder="URL cartel"
-          className="h-9 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-        />
-      </div>
+      <input
+        type="number"
+        min="1"
+        value={draft.durationMinutes}
+        onChange={(event) => updateDraft({ durationMinutes: Number(event.target.value) })}
+        className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
+      />
       <DistributorInput
         distributors={distributors}
         value={draft.distributorName}
@@ -1198,6 +1163,26 @@ function MovieDraftFields({
           })
         }
       />
+      <div className="flex flex-wrap gap-2 text-xs">
+        {sourceUrl ? (
+          <a
+            className="text-zinc-400 transition hover:text-white"
+            href={sourceUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Ver en Wikidata
+          </a>
+        ) : null}
+        <a
+          className="text-zinc-400 transition hover:text-white"
+          href={getFilmAffinitySearchUrl(draft.title)}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Comprobar en FilmAffinity
+        </a>
+      </div>
     </div>
   );
 }
@@ -1262,46 +1247,6 @@ function DistributorInput({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function SearchPoster({ posterUrl, title }: { posterUrl: string; title: string }) {
-  if (!posterUrl) {
-    return (
-      <span className="flex h-16 w-11 shrink-0 items-center justify-center rounded bg-zinc-800 text-zinc-500">
-        <Film size={16} />
-      </span>
-    );
-  }
-
-  return (
-    <Image
-      src={posterUrl}
-      alt={title}
-      width={44}
-      height={64}
-      className="h-16 w-11 shrink-0 rounded object-cover"
-    />
-  );
-}
-
-function Poster({ movie }: { movie?: Movie }) {
-  if (!movie?.posterUrl) {
-    return (
-      <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded bg-zinc-800 text-zinc-500">
-        <Film size={16} />
-      </div>
-    );
-  }
-
-  return (
-    <Image
-      src={movie.posterUrl}
-      alt={movie.title}
-      width={40}
-      height={56}
-      className="h-14 w-10 shrink-0 rounded object-cover"
-    />
   );
 }
 
@@ -1371,6 +1316,10 @@ function getDistributorSuggestions(distributors: Distributor[], value: string) {
         normalizedValue.includes(distributor.normalizedName)
     )
     .slice(0, 3);
+}
+
+function getFilmAffinitySearchUrl(title: string) {
+  return `https://www.filmaffinity.com/es/search.php?stext=${encodeURIComponent(title.trim())}`;
 }
 
 function getErrorMessage(error: unknown) {
