@@ -2,6 +2,8 @@
 
 import { supabase } from "@/lib/supabase/client";
 import {
+  Distributor,
+  INITIAL_DISTRIBUTORS,
   INITIAL_MOVIES,
   INITIAL_ROOMS,
   Movie,
@@ -17,7 +19,14 @@ type DatabaseMovie = {
   title: string;
   duration_minutes: number;
   poster_url: string | null;
+  distributor_id: string | null;
   retired_at: string | null;
+};
+
+type DatabaseDistributor = {
+  id: string;
+  name: string;
+  normalized_name: string;
 };
 
 type DatabaseScreening = {
@@ -34,7 +43,14 @@ const mapMovieFromDatabase = (movie: DatabaseMovie): Movie => ({
   title: movie.title,
   durationMinutes: movie.duration_minutes,
   posterUrl: movie.poster_url ?? "",
+  distributorId: movie.distributor_id,
   retiredAt: movie.retired_at
+});
+
+const mapDistributorFromDatabase = (distributor: DatabaseDistributor): Distributor => ({
+  id: distributor.id,
+  name: distributor.name,
+  normalizedName: distributor.normalized_name
 });
 
 const mapScreeningFromDatabase = (screening: DatabaseScreening): Screening => ({
@@ -51,9 +67,13 @@ export async function loadSchedule(): Promise<ScheduleState> {
     return loadLocalSchedule();
   }
 
-  const [roomsResponse, moviesResponse, screeningsResponse] = await Promise.all([
+  const [roomsResponse, moviesResponse, distributorsResponse, screeningsResponse] = await Promise.all([
     supabase.from("rooms").select("id,name,position").order("position"),
-    supabase.from("movies").select("id,title,duration_minutes,poster_url,retired_at").order("title"),
+    supabase
+      .from("movies")
+      .select("id,title,duration_minutes,poster_url,distributor_id,retired_at")
+      .order("title"),
+    supabase.from("distributors").select("id,name,normalized_name").order("name"),
     supabase
       .from("screenings")
       .select("id,week_start,day,room_id,movie_id,starts_at")
@@ -62,6 +82,7 @@ export async function loadSchedule(): Promise<ScheduleState> {
 
   assertSupabaseResult(roomsResponse.error, "No se pudieron cargar las salas");
   assertSupabaseResult(moviesResponse.error, "No se pudieron cargar las peliculas");
+  assertSupabaseResult(distributorsResponse.error, "No se pudieron cargar las distribuidoras");
   assertSupabaseResult(screeningsResponse.error, "No se pudieron cargar las sesiones");
 
   return {
@@ -69,6 +90,9 @@ export async function loadSchedule(): Promise<ScheduleState> {
     movies: moviesResponse.data?.length
       ? (moviesResponse.data as DatabaseMovie[]).map(mapMovieFromDatabase)
       : INITIAL_MOVIES,
+    distributors: distributorsResponse.data?.length
+      ? (distributorsResponse.data as DatabaseDistributor[]).map(mapDistributorFromDatabase)
+      : INITIAL_DISTRIBUTORS,
     screenings: screeningsResponse.data?.length
       ? (screeningsResponse.data as DatabaseScreening[]).map(mapScreeningFromDatabase)
       : []
@@ -98,12 +122,60 @@ export async function saveMovie(movie: Movie) {
       title: movie.title,
       duration_minutes: movie.durationMinutes,
       poster_url: movie.posterUrl || null,
+      distributor_id: movie.distributorId,
       retired_at: movie.retiredAt
     },
     { onConflict: "id" }
   );
   assertSupabaseResult(error, "No se pudo guardar la pelicula");
   saveLocalMovie(movie);
+}
+
+export async function findOrCreateDistributor(distributorName: string): Promise<Distributor | null> {
+  const name = distributorName.trim();
+  const normalizedName = normalizeDistributorName(name);
+
+  if (!name || !normalizedName) {
+    return null;
+  }
+
+  if (!supabase) {
+    return findOrCreateLocalDistributor(name, normalizedName);
+  }
+
+  const { data: existing, error: selectError } = await supabase
+    .from("distributors")
+    .select("id,name,normalized_name")
+    .eq("normalized_name", normalizedName)
+    .maybeSingle();
+
+  assertSupabaseResult(selectError, "No se pudo comprobar la distribuidora");
+
+  if (existing) {
+    return mapDistributorFromDatabase(existing as DatabaseDistributor);
+  }
+
+  const { data: created, error: insertError } = await supabase
+    .from("distributors")
+    .insert({ name, normalized_name: normalizedName })
+    .select("id,name,normalized_name")
+    .single();
+
+  if (insertError) {
+    const { data: retryExisting, error: retryError } = await supabase
+      .from("distributors")
+      .select("id,name,normalized_name")
+      .eq("normalized_name", normalizedName)
+      .maybeSingle();
+
+    assertSupabaseResult(retryError, "No se pudo recuperar la distribuidora");
+    if (retryExisting) {
+      return mapDistributorFromDatabase(retryExisting as DatabaseDistributor);
+    }
+  }
+
+  assertSupabaseResult(insertError, "No se pudo crear la distribuidora");
+  return created ? mapDistributorFromDatabase(created as DatabaseDistributor) : null;
 }
 
 export async function saveScreening(screening: Screening) {
@@ -185,12 +257,22 @@ export async function removeMovie(movieId: string): Promise<RemoveMovieResult> {
 
 function loadLocalSchedule(): ScheduleState {
   if (typeof window === "undefined") {
-    return { rooms: INITIAL_ROOMS, movies: INITIAL_MOVIES, screenings: [] };
+    return {
+      rooms: INITIAL_ROOMS,
+      movies: INITIAL_MOVIES,
+      distributors: INITIAL_DISTRIBUTORS,
+      screenings: []
+    };
   }
 
   const raw = window.localStorage.getItem(STORAGE_KEY);
   if (!raw) {
-    return { rooms: INITIAL_ROOMS, movies: INITIAL_MOVIES, screenings: [] };
+    return {
+      rooms: INITIAL_ROOMS,
+      movies: INITIAL_MOVIES,
+      distributors: INITIAL_DISTRIBUTORS,
+      screenings: []
+    };
   }
 
   try {
@@ -198,12 +280,28 @@ function loadLocalSchedule(): ScheduleState {
     return {
       rooms: parsed.rooms?.length ? parsed.rooms : INITIAL_ROOMS,
       movies: parsed.movies?.length
-        ? parsed.movies.map((movie) => ({ ...movie, retiredAt: movie.retiredAt ?? null }))
+        ? parsed.movies.map((movie) => ({
+            ...movie,
+            distributorId: movie.distributorId ?? null,
+            retiredAt: movie.retiredAt ?? null
+          }))
         : INITIAL_MOVIES,
+      distributors: parsed.distributors?.length
+        ? parsed.distributors.map((distributor) => ({
+            ...distributor,
+            normalizedName:
+              distributor.normalizedName || normalizeDistributorName(distributor.name)
+          }))
+        : INITIAL_DISTRIBUTORS,
       screenings: parsed.screenings ?? []
     };
   } catch {
-    return { rooms: INITIAL_ROOMS, movies: INITIAL_MOVIES, screenings: [] };
+    return {
+      rooms: INITIAL_ROOMS,
+      movies: INITIAL_MOVIES,
+      distributors: INITIAL_DISTRIBUTORS,
+      screenings: []
+    };
   }
 }
 
@@ -224,6 +322,32 @@ function saveLocalMovie(movie: Movie) {
       a.title.localeCompare(b.title)
     )
   });
+}
+
+function findOrCreateLocalDistributor(name: string, normalizedName: string) {
+  const current = loadLocalSchedule();
+  const existing = current.distributors.find(
+    (distributor) => distributor.normalizedName === normalizedName
+  );
+
+  if (existing) {
+    return existing;
+  }
+
+  const distributor: Distributor = {
+    id: crypto.randomUUID(),
+    name,
+    normalizedName
+  };
+
+  persistLocal({
+    ...current,
+    distributors: [...current.distributors, distributor].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )
+  });
+
+  return distributor;
 }
 
 function retireLocalMovie(movieId: string, retiredAt: string) {
@@ -267,4 +391,14 @@ function assertSupabaseResult(error: { message?: string } | null, fallbackMessag
   if (!error) return;
 
   throw new Error(error.message || fallbackMessage);
+}
+
+export function normalizeDistributorName(name: string) {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }

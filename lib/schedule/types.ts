@@ -9,7 +9,14 @@ export type Movie = {
   title: string;
   durationMinutes: number;
   posterUrl: string;
+  distributorId: string | null;
   retiredAt: string | null;
+};
+
+export type Distributor = {
+  id: string;
+  name: string;
+  normalizedName: string;
 };
 
 export type Screening = {
@@ -33,6 +40,7 @@ export type WeekdayKey =
 export type ScheduleState = {
   rooms: Room[];
   movies: Movie[];
+  distributors: Distributor[];
   screenings: Screening[];
 };
 
@@ -59,3 +67,5 @@ export const INITIAL_ROOMS: Room[] = [
 ];
 
 export const INITIAL_MOVIES: Movie[] = [];
+
+export const INITIAL_DISTRIBUTORS: Distributor[] = [];

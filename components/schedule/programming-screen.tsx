@@ -2,12 +2,14 @@
 
 import {
   CalendarDays,
+  Check,
   ChevronLeft,
   ChevronRight,
   Copy,
   Film,
   Loader2,
   Plus,
+  Search,
   Trash2
 } from "lucide-react";
 import Image from "next/image";
@@ -27,6 +29,8 @@ import {
   toDateKey
 } from "@/lib/schedule/dates";
 import {
+  Distributor,
+  INITIAL_DISTRIBUTORS,
   INITIAL_ROOMS,
   Movie,
   Room,
@@ -37,7 +41,9 @@ import {
 } from "@/lib/schedule/types";
 import {
   deleteScreening,
+  findOrCreateDistributor,
   loadSchedule,
+  normalizeDistributorName,
   removeMovie,
   saveMovie,
   saveRooms,
@@ -46,17 +52,36 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
 type SaveState = "saved" | "saving" | "error";
+type MovieSearchState = "idle" | "searching" | "error";
 
 type MovieDraft = {
   title: string;
   durationMinutes: number;
   posterUrl: string;
+  distributorName: string;
+  distributorId: string | null;
 };
 
 const emptyMovieForm: MovieDraft = {
   title: "",
   durationMinutes: 100,
-  posterUrl: ""
+  posterUrl: "",
+  distributorName: "",
+  distributorId: null
+};
+
+type MovieSearchResult = {
+  tmdbId: number;
+  title: string;
+  year: string | null;
+  durationMinutes: number | null;
+  posterUrl: string;
+  distributorName: string;
+};
+
+type MovieSearchResponse = {
+  results?: MovieSearchResult[];
+  error?: string;
 };
 
 export function ProgrammingScreen() {
@@ -64,12 +89,18 @@ export function ProgrammingScreen() {
   const [state, setState] = useState<ScheduleState>({
     rooms: INITIAL_ROOMS,
     movies: [],
+    distributors: INITIAL_DISTRIBUTORS,
     screenings: []
   });
   const [activeDay, setActiveDay] = useState<WeekdayKey>("friday");
   const [duplicateSource, setDuplicateSource] = useState<WeekdayKey>("friday");
   const [duplicateTarget, setDuplicateTarget] = useState<WeekdayKey>("saturday");
   const [movieForm, setMovieForm] = useState<MovieDraft>(emptyMovieForm);
+  const [movieSearchQuery, setMovieSearchQuery] = useState("");
+  const [movieSearchResults, setMovieSearchResults] = useState<MovieSearchResult[]>([]);
+  const [movieSearchState, setMovieSearchState] = useState<MovieSearchState>("idle");
+  const [movieSearchError, setMovieSearchError] = useState("");
+  const [importDraft, setImportDraft] = useState<MovieDraft | null>(null);
   const [isMoviePanelOpen, setIsMoviePanelOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -194,6 +225,33 @@ export function ProgrammingScreen() {
     }
   };
 
+  const resolveDistributorFromDraft = async (draft: MovieDraft) => {
+    const distributorName = draft.distributorName.trim();
+    const normalizedName = normalizeDistributorName(distributorName);
+
+    if (!distributorName || !normalizedName) {
+      return null;
+    }
+
+    const selectedDistributor = draft.distributorId
+      ? state.distributors.find((distributor) => distributor.id === draft.distributorId)
+      : null;
+
+    if (selectedDistributor?.normalizedName === normalizedName) {
+      return selectedDistributor;
+    }
+
+    const existingDistributor = state.distributors.find(
+      (distributor) => distributor.normalizedName === normalizedName
+    );
+
+    if (existingDistributor) {
+      return existingDistributor;
+    }
+
+    return findOrCreateDistributor(distributorName);
+  };
+
   const createMovieFromDraft = async (draft: MovieDraft) => {
     const title = draft.title.trim();
     const durationMinutes = Number(draft.durationMinutes);
@@ -204,35 +262,93 @@ export function ProgrammingScreen() {
       return null;
     }
 
-    const movie: Movie = {
-      id: crypto.randomUUID(),
-      title,
-      durationMinutes,
-      posterUrl: draft.posterUrl.trim(),
-      retiredAt: null
-    };
+    setSaveState("saving");
+    setSaveError("");
 
-    setState((current) => ({
-      ...current,
-      movies: [...current.movies, movie].sort((a, b) => a.title.localeCompare(b.title))
-    }));
+    try {
+      const distributor = await resolveDistributorFromDraft(draft);
+      const movie: Movie = {
+        id: crypto.randomUUID(),
+        title,
+        durationMinutes,
+        posterUrl: draft.posterUrl.trim(),
+        distributorId: distributor?.id ?? null,
+        retiredAt: null
+      };
 
-    const saved = await runSaving(() => saveMovie(movie));
-    if (!saved) {
+      await saveMovie(movie);
+
       setState((current) => ({
         ...current,
-        movies: current.movies.filter((item) => item.id !== movie.id)
+        distributors: distributor
+          ? upsertDistributor(current.distributors, distributor)
+          : current.distributors,
+        movies: [...current.movies, movie].sort((a, b) => a.title.localeCompare(b.title))
       }));
+      setSaveState("saved");
+      return movie;
+    } catch (error) {
+      setSaveState("error");
+      setSaveError(getErrorMessage(error));
       return null;
     }
-
-    return movie;
   };
 
   const createMovie = async () => {
     const movie = await createMovieFromDraft(movieForm);
     if (movie) {
       setMovieForm(emptyMovieForm);
+    }
+  };
+
+  const searchMovies = async () => {
+    const query = movieSearchQuery.trim();
+
+    if (query.length < 2) {
+      setMovieSearchState("error");
+      setMovieSearchError("Escribe al menos 2 letras.");
+      return;
+    }
+
+    setMovieSearchState("searching");
+    setMovieSearchError("");
+    setImportDraft(null);
+
+    try {
+      const response = await fetch(`/api/movie-search?q=${encodeURIComponent(query)}`);
+      const data = (await response.json()) as MovieSearchResponse;
+
+      if (!response.ok) {
+        throw new Error(data.error || "No se pudo buscar la pelicula.");
+      }
+
+      setMovieSearchResults(data.results ?? []);
+      setMovieSearchState("idle");
+    } catch (error) {
+      setMovieSearchResults([]);
+      setMovieSearchState("error");
+      setMovieSearchError(getErrorMessage(error));
+    }
+  };
+
+  const startImportMovie = (result: MovieSearchResult) => {
+    setImportDraft({
+      title: result.title,
+      durationMinutes: result.durationMinutes ?? 100,
+      posterUrl: result.posterUrl,
+      distributorName: result.distributorName,
+      distributorId: null
+    });
+  };
+
+  const createImportedMovie = async () => {
+    if (!importDraft) return;
+
+    const movie = await createMovieFromDraft(importDraft);
+    if (movie) {
+      setImportDraft(null);
+      setMovieSearchQuery("");
+      setMovieSearchResults([]);
     }
   };
 
@@ -368,7 +484,7 @@ export function ProgrammingScreen() {
       <div
         className={clsx(
           "mx-auto grid max-w-[1600px] gap-4 px-4 py-3",
-          isMoviePanelOpen ? "xl:grid-cols-[minmax(0,1fr)_320px]" : "xl:grid-cols-1"
+          isMoviePanelOpen ? "xl:grid-cols-[minmax(0,1fr)_360px]" : "xl:grid-cols-1"
         )}
       >
         <section className="min-w-0">
@@ -483,6 +599,7 @@ export function ProgrammingScreen() {
                       roomScreenings.map((screening) => (
                         <ScreeningCard
                           key={screening.id}
+                          distributors={state.distributors}
                           movies={state.movies}
                           screening={screening}
                           screenings={weekScreenings}
@@ -519,7 +636,103 @@ export function ProgrammingScreen() {
                 </button>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-3 border-b border-babel-line pb-4">
+                <div>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+                    Buscar pelicula
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      value={movieSearchQuery}
+                      onChange={(event) => setMovieSearchQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          void searchMovies();
+                        }
+                      }}
+                      placeholder="Titulo en TMDB"
+                      className="h-10 min-w-0 flex-1 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+                    />
+                    <button
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-babel-red text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void searchMovies()}
+                      disabled={movieSearchState === "searching"}
+                      title="Buscar pelicula"
+                    >
+                      {movieSearchState === "searching" ? (
+                        <Loader2 className="animate-spin" size={16} />
+                      ) : (
+                        <Search size={16} />
+                      )}
+                    </button>
+                  </div>
+                  {movieSearchState === "error" ? (
+                    <p className="mt-2 text-xs text-red-300">{movieSearchError}</p>
+                  ) : null}
+                </div>
+
+                {movieSearchResults.length ? (
+                  <div className="max-h-72 space-y-2 overflow-y-auto">
+                    {movieSearchResults.map((result) => (
+                      <button
+                        key={result.tmdbId}
+                        className="flex w-full gap-3 rounded-md border border-babel-line bg-babel-card p-2 text-left transition hover:border-zinc-500"
+                        onClick={() => startImportMovie(result)}
+                      >
+                        <SearchPoster title={result.title} posterUrl={result.posterUrl} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-white">
+                            {result.title}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-zinc-400">
+                            {result.year ?? "Ano no disponible"} ·{" "}
+                            {result.durationMinutes
+                              ? `${result.durationMinutes} min`
+                              : "Duracion pendiente"}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-zinc-500">
+                            {result.distributorName || "Distribuidora manual"}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {importDraft ? (
+                  <div className="rounded-md border border-babel-red/50 bg-red-950/20 p-3">
+                    <p className="mb-3 text-sm font-medium text-white">
+                      Es esta la pelicula que quieres importar?
+                    </p>
+                    <MovieDraftFields
+                      distributors={state.distributors}
+                      draft={importDraft}
+                      onChange={(draft) => setImportDraft(draft)}
+                    />
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-md bg-babel-red px-3 text-sm font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => void createImportedMovie()}
+                        disabled={!importDraft.title.trim() || Number(importDraft.durationMinutes) <= 0}
+                      >
+                        <Check size={15} />
+                        Importar
+                      </button>
+                      <button
+                        className="h-9 rounded-md border border-babel-line px-3 text-sm text-zinc-300 transition hover:bg-babel-card hover:text-white"
+                        onClick={() => setImportDraft(null)}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+                  Crear manualmente
+                </p>
                 <input
                   value={movieForm.title}
                   onChange={(event) =>
@@ -550,6 +763,25 @@ export function ProgrammingScreen() {
                     className="h-10 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
                   />
                 </div>
+                <DistributorInput
+                  distributors={state.distributors}
+                  value={movieForm.distributorName}
+                  selectedDistributorId={movieForm.distributorId}
+                  onChange={(distributorName) =>
+                    setMovieForm((current) => ({
+                      ...current,
+                      distributorName,
+                      distributorId: null
+                    }))
+                  }
+                  onSelect={(distributor) =>
+                    setMovieForm((current) => ({
+                      ...current,
+                      distributorName: distributor.name,
+                      distributorId: distributor.id
+                    }))
+                  }
+                />
                 <button
                   className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-babel-red px-3 text-sm font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={createMovie}
@@ -569,6 +801,10 @@ export function ProgrammingScreen() {
                     const usageCount = movieUsageCounts.get(movie.id) ?? 0;
                     const canDelete = usageCount === 0;
                     const isRetired = Boolean(movie.retiredAt);
+                    const distributorName = getDistributorName(
+                      state.distributors,
+                      movie.distributorId
+                    );
                     const buttonLabel = canDelete
                       ? "Borrar"
                       : isRetired
@@ -587,6 +823,11 @@ export function ProgrammingScreen() {
                               {movie.durationMinutes} min
                               {usageCount ? ` · ${usageCount} sesiones` : ""}
                             </p>
+                            {distributorName ? (
+                              <p className="truncate text-xs text-zinc-500">
+                                {distributorName}
+                              </p>
+                            ) : null}
                             {isRetired ? (
                               <p className="mt-1 text-xs text-zinc-500">Retirada del selector</p>
                             ) : null}
@@ -619,6 +860,7 @@ export function ProgrammingScreen() {
 function ScreeningCard({
   screening,
   screenings,
+  distributors,
   movies,
   onChange,
   onCreateMovie,
@@ -626,6 +868,7 @@ function ScreeningCard({
 }: {
   screening: Screening;
   screenings: Screening[];
+  distributors: Distributor[];
   movies: Movie[];
   onChange: (patch: Partial<Screening>) => void;
   onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
@@ -719,6 +962,7 @@ function ScreeningCard({
       {isEditingMovie ? (
         <div className="mt-2 border-t border-babel-line pt-2">
           <MoviePicker
+            distributors={distributors}
             movies={movies}
             selectedMovieId={screening.movieId}
             onCreateMovie={onCreateMovie}
@@ -737,11 +981,13 @@ function ScreeningCard({
 
 function MoviePicker({
   selectedMovieId,
+  distributors,
   movies,
   onSelect,
   onCreateMovie
 }: {
   selectedMovieId: string | null;
+  distributors: Distributor[];
   movies: Movie[];
   onSelect: (movieId: string | null) => void;
   onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
@@ -850,6 +1096,26 @@ function MoviePicker({
               className="h-8 rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
             />
           </div>
+          <DistributorInput
+            compact
+            distributors={distributors}
+            value={draft.distributorName}
+            selectedDistributorId={draft.distributorId}
+            onChange={(distributorName) =>
+              setDraft((current) => ({
+                ...current,
+                distributorName,
+                distributorId: null
+              }))
+            }
+            onSelect={(distributor) =>
+              setDraft((current) => ({
+                ...current,
+                distributorName: distributor.name,
+                distributorId: distributor.id
+              }))
+            }
+          />
           <div className="flex gap-1.5">
             <button
               className="h-8 flex-1 rounded bg-babel-red px-2 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -876,6 +1142,146 @@ function MoviePicker({
         </button>
       )}
     </div>
+  );
+}
+
+function MovieDraftFields({
+  draft,
+  distributors,
+  onChange
+}: {
+  draft: MovieDraft;
+  distributors: Distributor[];
+  onChange: (draft: MovieDraft) => void;
+}) {
+  const updateDraft = (patch: Partial<MovieDraft>) => {
+    onChange({ ...draft, ...patch });
+  };
+
+  return (
+    <div className="space-y-2">
+      <input
+        value={draft.title}
+        onChange={(event) => updateDraft({ title: event.target.value })}
+        placeholder="Titulo"
+        className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+      />
+      <div className="grid grid-cols-[100px_1fr] gap-2">
+        <input
+          type="number"
+          min="1"
+          value={draft.durationMinutes}
+          onChange={(event) => updateDraft({ durationMinutes: Number(event.target.value) })}
+          className="h-9 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
+        />
+        <input
+          value={draft.posterUrl}
+          onChange={(event) => updateDraft({ posterUrl: event.target.value })}
+          placeholder="URL cartel"
+          className="h-9 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+        />
+      </div>
+      <DistributorInput
+        distributors={distributors}
+        value={draft.distributorName}
+        selectedDistributorId={draft.distributorId}
+        onChange={(distributorName) =>
+          updateDraft({
+            distributorName,
+            distributorId: null
+          })
+        }
+        onSelect={(distributor) =>
+          updateDraft({
+            distributorName: distributor.name,
+            distributorId: distributor.id
+          })
+        }
+      />
+    </div>
+  );
+}
+
+function DistributorInput({
+  value,
+  selectedDistributorId,
+  distributors,
+  onChange,
+  onSelect,
+  compact = false
+}: {
+  value: string;
+  selectedDistributorId: string | null;
+  distributors: Distributor[];
+  onChange: (value: string) => void;
+  onSelect: (distributor: Distributor) => void;
+  compact?: boolean;
+}) {
+  const selectedDistributor = distributors.find(
+    (distributor) => distributor.id === selectedDistributorId
+  );
+  const suggestions = getDistributorSuggestions(distributors, value).filter(
+    (distributor) => distributor.id !== selectedDistributorId
+  );
+
+  return (
+    <div className="space-y-1">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Distribuidora"
+        className={clsx(
+          "w-full rounded border border-babel-line bg-babel-card text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red",
+          compact ? "h-8 px-2 text-xs" : "h-10 px-3 text-sm"
+        )}
+      />
+
+      {selectedDistributor ? (
+        <div className="flex items-center justify-between rounded bg-zinc-950/30 px-2 py-1 text-[11px] text-zinc-400">
+          <span className="truncate">{selectedDistributor.name}</span>
+          <button className="text-zinc-500 transition hover:text-white" onClick={() => onChange("")}>
+            Quitar
+          </button>
+        </div>
+      ) : null}
+
+      {suggestions.length ? (
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-600">
+            Coincidencias
+          </p>
+          {suggestions.map((distributor) => (
+            <button
+              key={distributor.id}
+              className="w-full rounded border border-babel-line bg-zinc-950/30 px-2 py-1 text-left text-xs text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+              onClick={() => onSelect(distributor)}
+            >
+              {distributor.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SearchPoster({ posterUrl, title }: { posterUrl: string; title: string }) {
+  if (!posterUrl) {
+    return (
+      <span className="flex h-16 w-11 shrink-0 items-center justify-center rounded bg-zinc-800 text-zinc-500">
+        <Film size={16} />
+      </span>
+    );
+  }
+
+  return (
+    <Image
+      src={posterUrl}
+      alt={title}
+      width={44}
+      height={64}
+      className="h-16 w-11 shrink-0 rounded object-cover"
+    />
   );
 }
 
@@ -937,6 +1343,34 @@ function StatusBadge({
 
 function getWeekdayLabel(dayKey: WeekdayKey) {
   return WEEKDAYS.find((day) => day.key === dayKey)?.label ?? dayKey;
+}
+
+function upsertDistributor(distributors: Distributor[], distributor: Distributor) {
+  return [
+    ...distributors.filter((item) => item.id !== distributor.id),
+    distributor
+  ].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getDistributorName(distributors: Distributor[], distributorId: string | null) {
+  if (!distributorId) return "";
+  return distributors.find((distributor) => distributor.id === distributorId)?.name ?? "";
+}
+
+function getDistributorSuggestions(distributors: Distributor[], value: string) {
+  const normalizedValue = normalizeDistributorName(value);
+
+  if (!normalizedValue) {
+    return [];
+  }
+
+  return distributors
+    .filter(
+      (distributor) =>
+        distributor.normalizedName.includes(normalizedValue) ||
+        normalizedValue.includes(distributor.normalizedName)
+    )
+    .slice(0, 3);
 }
 
 function getErrorMessage(error: unknown) {
