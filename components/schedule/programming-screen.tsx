@@ -107,6 +107,9 @@ export function ProgrammingScreen() {
   const [editingDistributorId, setEditingDistributorId] = useState<string | null>(null);
   const [distributorRenameDraft, setDistributorRenameDraft] = useState("");
   const [activeDistributorActionId, setActiveDistributorActionId] = useState<string | null>(null);
+  const [activeDistributorAction, setActiveDistributorAction] = useState<"remove" | "merge" | null>(
+    null
+  );
   const [mergeTargetDistributorId, setMergeTargetDistributorId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -470,6 +473,7 @@ export function ProgrammingScreen() {
 
     setEditingDistributorId(null);
     setActiveDistributorActionId(distributor.id);
+    setActiveDistributorAction("remove");
     setMergeTargetDistributorId(
       state.distributors.find((item) => item.id !== distributor.id)?.id ?? ""
     );
@@ -478,11 +482,27 @@ export function ProgrammingScreen() {
       const confirmed = window.confirm(`Borrar "${distributor.name}" definitivamente.`);
       if (!confirmed) {
         setActiveDistributorActionId(null);
+        setActiveDistributorAction(null);
         return;
       }
 
       void removeUnusedDistributor(distributor);
     }
+  };
+
+  const requestMergeDistributor = (distributor: Distributor) => {
+    const currentTargetIsValid = state.distributors.some(
+      (item) => item.id === mergeTargetDistributorId && item.id !== distributor.id
+    );
+    const defaultTargetId =
+      currentTargetIsValid
+        ? mergeTargetDistributorId
+        : state.distributors.find((item) => item.id !== distributor.id)?.id ?? "";
+
+    setEditingDistributorId(null);
+    setActiveDistributorActionId(distributor.id);
+    setActiveDistributorAction("merge");
+    setMergeTargetDistributorId(defaultTargetId);
   };
 
   const removeUnusedDistributor = async (distributor: Distributor) => {
@@ -502,6 +522,7 @@ export function ProgrammingScreen() {
     }
 
     setActiveDistributorActionId(null);
+    setActiveDistributorAction(null);
   };
 
   const detachMoviesAndRemoveDistributor = async (distributor: Distributor) => {
@@ -524,6 +545,7 @@ export function ProgrammingScreen() {
     }
 
     setActiveDistributorActionId(null);
+    setActiveDistributorAction(null);
   };
 
   const mergeDistributorIntoTarget = async (sourceDistributor: Distributor) => {
@@ -532,6 +554,23 @@ export function ProgrammingScreen() {
       setSaveError("Elige otra distribuidora para fusionar.");
       return;
     }
+
+    const targetDistributor = state.distributors.find(
+      (distributor) => distributor.id === mergeTargetDistributorId
+    );
+
+    if (!targetDistributor) {
+      setSaveState("error");
+      setSaveError("Elige una distribuidora destino valida.");
+      return;
+    }
+
+    const usageCount = distributorMovieCounts.get(sourceDistributor.id) ?? 0;
+    const confirmed = window.confirm(
+      `Fusionar "${sourceDistributor.name}" en "${targetDistributor.name}". Se moveran ${usageCount} peliculas y se borrara la distribuidora origen.`
+    );
+
+    if (!confirmed) return;
 
     const previousState = state;
 
@@ -556,6 +595,7 @@ export function ProgrammingScreen() {
     }
 
     setActiveDistributorActionId(null);
+    setActiveDistributorAction(null);
     setMergeTargetDistributorId("");
   };
 
@@ -1012,6 +1052,7 @@ export function ProgrammingScreen() {
 
             <DistributorManager
               activeActionId={activeDistributorActionId}
+              activeAction={activeDistributorAction}
               distributors={state.distributors}
               editingDistributorId={editingDistributorId}
               isOpen={isDistributorPanelOpen}
@@ -1020,11 +1061,13 @@ export function ProgrammingScreen() {
               renameDraft={distributorRenameDraft}
               onCancelAction={() => {
                 setActiveDistributorActionId(null);
+                setActiveDistributorAction(null);
                 setMergeTargetDistributorId("");
               }}
               onCancelRename={cancelRenameDistributor}
               onDetachAndRemove={detachMoviesAndRemoveDistributor}
               onMerge={mergeDistributorIntoTarget}
+              onRequestMerge={requestMergeDistributor}
               onRemove={requestRemoveDistributor}
               onRename={renameDistributor}
               onRenameDraftChange={setDistributorRenameDraft}
@@ -1453,6 +1496,7 @@ function DistributorInput({
 
 function DistributorManager({
   activeActionId,
+  activeAction,
   distributors,
   editingDistributorId,
   isOpen,
@@ -1463,6 +1507,7 @@ function DistributorManager({
   onCancelRename,
   onDetachAndRemove,
   onMerge,
+  onRequestMerge,
   onRemove,
   onRename,
   onRenameDraftChange,
@@ -1471,6 +1516,7 @@ function DistributorManager({
   onToggle
 }: {
   activeActionId: string | null;
+  activeAction: "remove" | "merge" | null;
   distributors: Distributor[];
   editingDistributorId: string | null;
   isOpen: boolean;
@@ -1481,6 +1527,7 @@ function DistributorManager({
   onCancelRename: () => void;
   onDetachAndRemove: (distributor: Distributor) => void;
   onMerge: (distributor: Distributor) => void;
+  onRequestMerge: (distributor: Distributor) => void;
   onRemove: (distributor: Distributor) => void;
   onRename: (distributor: Distributor) => void;
   onRenameDraftChange: (value: string) => void;
@@ -1510,6 +1557,8 @@ function DistributorManager({
               const usageCount = movieCounts.get(distributor.id) ?? 0;
               const isEditing = editingDistributorId === distributor.id;
               const isActionOpen = activeActionId === distributor.id;
+              const isMergeOpen = isActionOpen && activeAction === "merge";
+              const isRemoveOpen = isActionOpen && activeAction === "remove";
               const mergeTargets = distributors.filter((item) => item.id !== distributor.id);
 
               return (
@@ -1550,12 +1599,19 @@ function DistributorManager({
                               : `${usageCount} peliculas`}
                           </p>
                         </div>
-                        <div className="flex shrink-0 gap-1">
+                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
                           <button
                             className="h-7 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
                             onClick={() => onStartRename(distributor)}
                           >
                             Editar
+                          </button>
+                          <button
+                            className="h-7 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => onRequestMerge(distributor)}
+                            disabled={mergeTargets.length === 0}
+                          >
+                            Fusionar
                           </button>
                           <button
                             className="h-7 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:border-red-500 hover:bg-red-950/30 hover:text-white"
@@ -1566,7 +1622,7 @@ function DistributorManager({
                         </div>
                       </div>
 
-                      {isActionOpen && usageCount > 0 ? (
+                      {isRemoveOpen && usageCount > 0 ? (
                         <div className="mt-2 space-y-2 rounded border border-red-500/40 bg-red-950/20 p-2">
                           <p className="text-xs text-red-200">
                             Esta distribuidora esta usada en {usageCount}{" "}
@@ -1578,7 +1634,21 @@ function DistributorManager({
                           >
                             Quitar distribuidora de esas peliculas
                           </button>
+                          <button
+                            className="h-8 w-full rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+                            onClick={onCancelAction}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : null}
 
+                      {isMergeOpen ? (
+                        <div className="mt-2 space-y-2 rounded border border-babel-line bg-zinc-950/30 p-2">
+                          <p className="text-xs text-zinc-400">
+                            Mover {usageCount}{" "}
+                            {usageCount === 1 ? "pelicula" : "peliculas"} a:
+                          </p>
                           <div className="grid grid-cols-[1fr_auto] gap-2">
                             <select
                               value={mergeTargetDistributorId}
@@ -1596,10 +1666,9 @@ function DistributorManager({
                               onClick={() => onMerge(distributor)}
                               disabled={!mergeTargets.length || !mergeTargetDistributorId}
                             >
-                              Fusionar
+                              Confirmar
                             </button>
                           </div>
-
                           <button
                             className="h-8 w-full rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
                             onClick={onCancelAction}
