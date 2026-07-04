@@ -1,6 +1,13 @@
 "use client";
 
-import { KeyboardEvent, MouseEvent, useEffect, useRef, useState } from "react";
+import {
+  KeyboardEvent,
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState
+} from "react";
 import { Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import {
@@ -20,6 +27,7 @@ type ScreeningCardProps = {
   screening: Screening;
   screenings: Screening[];
   distributors: Distributor[];
+  isDragging: boolean;
   isSelected: boolean;
   movies: Movie[];
   timelineLayout: TimelineScreeningLayout | null;
@@ -27,7 +35,9 @@ type ScreeningCardProps = {
   onChange: (patch: Partial<Screening>) => Promise<boolean> | boolean | void;
   onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
   onDelete: () => void;
+  onDragPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onSelect: () => void;
+  shouldIgnoreSelectionClick: () => boolean;
 };
 
 export function ScreeningCard({
@@ -36,6 +46,7 @@ export function ScreeningCard({
   screening,
   screenings,
   distributors,
+  isDragging,
   isSelected,
   movies,
   timelineLayout,
@@ -43,7 +54,9 @@ export function ScreeningCard({
   onChange,
   onCreateMovie,
   onDelete,
-  onSelect
+  onDragPointerDown,
+  onSelect,
+  shouldIgnoreSelectionClick
 }: ScreeningCardProps) {
   const [isEditingMovie, setIsEditingMovie] = useState(!screening.movieId);
   const [timeDraft, setTimeDraft] = useState(screening.startsAt);
@@ -147,17 +160,27 @@ export function ScreeningCard({
   const handleCardClick = (event: MouseEvent<HTMLElement>) => {
     event.stopPropagation();
 
-    if (isInteractiveSelectionTarget(event.target)) {
+    if (shouldIgnoreSelectionClick() || isInteractiveSelectionTarget(event.target)) {
       return;
     }
 
     onSelect();
   };
 
+  const handleCardPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    if (isInteractiveSelectionTarget(event.target)) {
+      return;
+    }
+
+    onDragPointerDown(event);
+  };
+
   return (
     <article
       ref={cardRef}
+      data-screening-id={screening.id}
       onClick={handleCardClick}
+      onPointerDown={handleCardPointerDown}
       style={{
         height: timelineLayout?.height,
         top: timelineLayout?.top
@@ -165,6 +188,7 @@ export function ScreeningCard({
       className={clsx(
         "flex flex-col rounded-md border shadow-[0_18px_46px_rgba(0,0,0,0.68)] transition",
         isCompactCard ? "px-1.5 py-1" : "px-2 py-1.5",
+        isDragging ? "cursor-grabbing opacity-35" : "cursor-grab",
         isEditingMovie ? "z-30 overflow-visible" : "z-10 overflow-hidden",
         timelineLayout ? "absolute left-12 right-2" : "relative m-2",
         isSelected ? "ring-2 ring-white/70" : "ring-1 ring-white/10",

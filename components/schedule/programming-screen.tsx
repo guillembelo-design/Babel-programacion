@@ -79,6 +79,10 @@ import {
 } from "@/components/movies/types";
 import { ScreeningCard } from "./screening-card";
 import { SaveState, StatusBadge } from "./status-badge";
+import {
+  ScreeningDropResult,
+  useScreeningDragAndDrop
+} from "./use-screening-drag-and-drop";
 import { useUndoableScreenings } from "./use-undoable-screenings";
 import { WeeklyPrintView } from "./weekly-print-view";
 
@@ -123,6 +127,7 @@ export function ProgrammingScreen({
   const [importSourceUrl, setImportSourceUrl] = useState("");
   const [activeSection, setActiveSection] = useState<MainSection>("schedule");
   const [selectedScreeningId, setSelectedScreeningId] = useState<string | null>(null);
+  const [dragNotice, setDragNotice] = useState("");
   const [isDistributorPanelOpen, setIsDistributorPanelOpen] = useState(true);
   const [editingDistributorId, setEditingDistributorId] = useState<string | null>(null);
   const [distributorRenameDraft, setDistributorRenameDraft] = useState("");
@@ -181,6 +186,13 @@ export function ProgrammingScreen({
       setSelectedScreeningId(null);
     }
   }, [selectedScreeningId, state.screenings]);
+
+  useEffect(() => {
+    if (!dragNotice) return;
+
+    const timeoutId = window.setTimeout(() => setDragNotice(""), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [dragNotice]);
 
   useEffect(() => {
     if (duplicateTarget === duplicateSource) {
@@ -263,6 +275,10 @@ export function ProgrammingScreen({
       screenings: state.screenings,
       setState
     });
+
+  const showDragNotice = useCallback((message: string) => {
+    setDragNotice(message);
+  }, []);
 
   const buildScreeningsWithPatch = (screening: Screening) =>
     [
@@ -393,6 +409,126 @@ export function ProgrammingScreen({
     );
     pushUndoSnapshot(previousPersistedScreenings);
   };
+
+  const persistDraggedScreeningDrop = useCallback(
+    async (drop: ScreeningDropResult) => {
+      const draggedScreening = state.screenings.find((screening) => screening.id === drop.screeningId);
+      const replacementScreening = drop.targetScreeningId
+        ? state.screenings.find((screening) => screening.id === drop.targetScreeningId)
+        : null;
+
+      if (!draggedScreening) return;
+      if (replacementScreening?.id === draggedScreening.id) return;
+      if (drop.targetScreeningId && !replacementScreening) {
+        showDragNotice("No cabe ahi");
+        return;
+      }
+
+      const nextRoomId = replacementScreening?.roomId ?? drop.roomId;
+      const nextStartsAt = replacementScreening?.startsAt ?? drop.startsAt;
+
+      if (
+        !replacementScreening &&
+        draggedScreening.weekStart === weekStart &&
+        draggedScreening.day === activeDay &&
+        draggedScreening.roomId === nextRoomId &&
+        draggedScreening.startsAt === nextStartsAt
+      ) {
+        return;
+      }
+
+      const previousScreenings = state.screenings;
+      const previousPersistedScreenings = persistedScreeningsRef.current;
+      const movedScreening: Screening = {
+        ...draggedScreening,
+        weekStart,
+        day: activeDay,
+        roomId: nextRoomId,
+        startsAt: nextStartsAt
+      };
+      const nextScreenings = [
+        ...state.screenings.filter(
+          (screening) =>
+            screening.id !== draggedScreening.id && screening.id !== replacementScreening?.id
+        ),
+        movedScreening
+      ].sort(compareScreeningStartTimes);
+      const nextPersistedScreenings = [
+        ...persistedScreeningsRef.current.filter(
+          (screening) =>
+            screening.id !== draggedScreening.id && screening.id !== replacementScreening?.id
+        ),
+        movedScreening
+      ].sort(compareScreeningStartTimes);
+
+      if (!replacementScreening) {
+        const conflicts = getTurnoverConflicts(nextScreenings, state.movies, turnoverMinutes).filter(
+          (conflict) =>
+            conflict.previousScreeningId === movedScreening.id ||
+            conflict.currentScreeningId === movedScreening.id
+        );
+
+        if (conflicts.length) {
+          showDragNotice("No cabe ahi");
+          return;
+        }
+      }
+
+      setState((current) => ({ ...current, screenings: nextScreenings }));
+
+      const saved = await runSaving(async () => {
+        if (!replacementScreening) {
+          await saveScreening(movedScreening);
+          return;
+        }
+
+        try {
+          await deleteScreening(replacementScreening.id);
+          await saveScreening(movedScreening);
+        } catch (error) {
+          await Promise.allSettled([
+            saveScreening(draggedScreening),
+            saveScreening(replacementScreening)
+          ]);
+          throw error;
+        }
+      });
+
+      if (!saved) {
+        setState((current) => ({ ...current, screenings: previousScreenings }));
+        rememberPersistedScreenings(previousPersistedScreenings);
+        return;
+      }
+
+      rememberPersistedScreenings(nextPersistedScreenings);
+      pushUndoSnapshot(previousPersistedScreenings);
+      setSelectedScreeningId(movedScreening.id);
+    },
+    [
+      activeDay,
+      pushUndoSnapshot,
+      rememberPersistedScreenings,
+      runSaving,
+      showDragNotice,
+      state.movies,
+      state.screenings,
+      turnoverMinutes,
+      weekStart
+    ]
+  );
+
+  const { consumeDragClickSuppression, dragState, startScreeningDrag } =
+    useScreeningDragAndDrop({
+      activeDay,
+      movies: state.movies,
+      onBlockedDrop: showDragNotice,
+      onDrop: persistDraggedScreeningDrop,
+      onSelectScreening: setSelectedScreeningId,
+      screenings: state.screenings,
+      timelineRange,
+      turnoverMinutes,
+      weekStart
+    });
 
   const resolveDistributorFromDraft = async (draft: MovieDraft) => {
     const distributorName = draft.distributorName.trim();
@@ -892,6 +1028,12 @@ export function ProgrammingScreen({
     (screening) =>
       getScreeningStatus(screening, weekScreenings, state.movies, turnoverMinutes) === "invalid"
   ).length;
+  const draggedScreening = dragState
+    ? state.screenings.find((screening) => screening.id === dragState.screeningId)
+    : null;
+  const draggedMovie = draggedScreening
+    ? state.movies.find((movie) => movie.id === draggedScreening.movieId)
+    : null;
 
   return (
     <>
@@ -925,6 +1067,11 @@ export function ProgrammingScreen({
             {undoNotice ? (
               <span className="inline-flex h-10 items-center rounded-md border border-green-500/20 bg-green-950/20 px-3 text-xs text-green-200">
                 {undoNotice}
+              </span>
+            ) : null}
+            {dragNotice ? (
+              <span className="inline-flex h-10 items-center rounded-md border border-red-500/25 bg-red-950/30 px-3 text-xs text-red-100">
+                {dragNotice}
               </span>
             ) : null}
             {onSignOut ? (
@@ -1087,6 +1234,31 @@ export function ProgrammingScreen({
               const roomScreenings = weekScreenings
                 .filter((screening) => screening.day === activeDay && screening.roomId === room.id)
                 .sort(compareScreeningStartTimes);
+              const roomDropTarget =
+                dragState?.dropTarget?.roomId === room.id ? dragState.dropTarget : null;
+              const replacementScreening = roomDropTarget?.targetScreeningId
+                ? state.screenings.find(
+                    (screening) => screening.id === roomDropTarget.targetScreeningId
+                  )
+                : null;
+              const replacementLayout = replacementScreening
+                ? getScreeningTimelineLayout(replacementScreening, state.movies, timelineRange)
+                : null;
+              const dropPreviewTop = roomDropTarget
+                ? (replacementLayout?.top ??
+                  getTimelineOffsetForMinutes(roomDropTarget.startMinutes, timelineRange))
+                : 0;
+              const dropPreviewHeight = roomDropTarget
+                ? Math.max(
+                    34,
+                    replacementLayout?.height ??
+                      getTimelineOffsetForMinutes(
+                        roomDropTarget.startMinutes + (draggedMovie?.durationMinutes ?? 60),
+                        timelineRange
+                      ) -
+                        getTimelineOffsetForMinutes(roomDropTarget.startMinutes, timelineRange)
+                  )
+                : 0;
 
               return (
                 <div key={room.id} className="rounded-md border border-babel-line bg-babel-panel">
@@ -1105,9 +1277,13 @@ export function ProgrammingScreen({
                   </div>
 
                   <div
+                    data-timeline-room-id={room.id}
                     className="relative overflow-visible rounded-b-md bg-zinc-950/20"
                     style={{ height: timelineHeight }}
-                    onClick={() => setSelectedScreeningId(null)}
+                    onClick={() => {
+                      if (consumeDragClickSuppression()) return;
+                      setSelectedScreeningId(null);
+                    }}
                   >
                     {timelineHourMarks.map((hourMark) => (
                       <div
@@ -1121,6 +1297,29 @@ export function ProgrammingScreen({
                         </span>
                       </div>
                     ))}
+                    {roomDropTarget ? (
+                      <div
+                        className={clsx(
+                          "pointer-events-none absolute left-12 right-2 z-20 flex items-start rounded-md border border-dashed px-2 py-1 text-[11px] font-semibold shadow-lg",
+                          roomDropTarget.status === "free" &&
+                            "border-green-300/70 bg-green-500/15 text-green-100",
+                          roomDropTarget.status === "replace" &&
+                            "border-amber-300/80 bg-amber-500/20 text-amber-100",
+                          roomDropTarget.status === "invalid" &&
+                            "border-red-300/80 bg-red-500/20 text-red-100"
+                        )}
+                        style={{
+                          height: dropPreviewHeight,
+                          top: dropPreviewTop
+                        }}
+                      >
+                        {roomDropTarget.status === "replace"
+                          ? "Reemplazar"
+                          : roomDropTarget.status === "invalid"
+                            ? "No cabe ahi"
+                            : roomDropTarget.startsAt}
+                      </div>
+                    ) : null}
                     {isLoading ? (
                       <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
                         <Loader2 className="animate-spin" size={18} />
@@ -1155,6 +1354,7 @@ export function ProgrammingScreen({
                             }
                             distributors={state.distributors}
                             gapInfo={gapInfo}
+                            isDragging={dragState?.screeningId === screening.id}
                             isSelected={selectedScreeningId === screening.id}
                             movies={state.movies}
                             screening={screening}
@@ -1164,7 +1364,9 @@ export function ProgrammingScreen({
                             onChange={(patch) => updateScreening(screening, patch)}
                             onCreateMovie={createMovieFromDraft}
                             onDelete={() => removeScreening(screening)}
+                            onDragPointerDown={(event) => startScreeningDrag(screening, event)}
                             onSelect={() => setSelectedScreeningId(screening.id)}
+                            shouldIgnoreSelectionClick={consumeDragClickSuppression}
                           />
                         );
                       })
@@ -1241,6 +1443,20 @@ export function ProgrammingScreen({
           </div>
         ) : null}
       </div>
+      {dragState && draggedScreening ? (
+        <div
+          className="pointer-events-none fixed z-[90] w-52 rounded-md border border-white/20 bg-zinc-900/95 px-3 py-2 text-sm text-white shadow-2xl ring-1 ring-black/50"
+          style={{
+            left: dragState.clientX + 12,
+            top: dragState.clientY + 12
+          }}
+        >
+          <div className="font-semibold tabular-nums">{draggedScreening.startsAt}</div>
+          <div className="mt-1 truncate text-xs font-bold uppercase">
+            {draggedMovie?.title ?? "Pelicula"}
+          </div>
+        </div>
+      ) : null}
     </main>
     <WeeklyPrintView
       distributors={state.distributors}
