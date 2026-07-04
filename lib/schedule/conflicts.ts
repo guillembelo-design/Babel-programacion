@@ -1,8 +1,28 @@
 import { CLEANING_MINUTES, Movie, Screening, ScreeningStatus } from "./types";
 
+export function isValidScreeningTime(time: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+}
+
 function timeToMinutes(time: string) {
+  if (!isValidScreeningTime(time)) return null;
+
   const [hours, minutes] = time.split(":").map(Number);
   return hours * 60 + minutes;
+}
+
+export function compareScreeningStartTimes(a: Screening, b: Screening) {
+  const aMinutes = timeToMinutes(a.startsAt);
+  const bMinutes = timeToMinutes(b.startsAt);
+
+  if (aMinutes === null && bMinutes === null) {
+    return a.startsAt.localeCompare(b.startsAt);
+  }
+
+  if (aMinutes === null) return 1;
+  if (bMinutes === null) return -1;
+
+  return aMinutes - bMinutes;
 }
 
 export function getScreeningStatus(
@@ -10,13 +30,21 @@ export function getScreeningStatus(
   screenings: Screening[],
   movies: Movie[]
 ): ScreeningStatus {
-  const movie = movies.find((item) => item.id === screening.movieId);
+  if (!screening.startsAt) {
+    return "empty";
+  }
 
-  if (!movie || !screening.startsAt) {
+  if (!isValidScreeningTime(screening.startsAt)) {
+    return "invalid";
+  }
+
+  const movie = movies.find((item) => item.id === screening.movieId);
+  if (!movie) {
     return "empty";
   }
 
   const start = timeToMinutes(screening.startsAt);
+  if (start === null) return "invalid";
   const end = start + movie.durationMinutes + CLEANING_MINUTES;
 
   const hasConflict = screenings.some((candidate) => {
@@ -28,6 +56,7 @@ export function getScreeningStatus(
     if (!candidateMovie || !candidate.startsAt) return false;
 
     const candidateStart = timeToMinutes(candidate.startsAt);
+    if (candidateStart === null) return false;
     const candidateEnd = candidateStart + candidateMovie.durationMinutes + CLEANING_MINUTES;
 
     return start < candidateEnd && end > candidateStart;
@@ -40,7 +69,10 @@ export function getScreeningEndTime(screening: Screening, movies: Movie[]) {
   const movie = movies.find((item) => item.id === screening.movieId);
   if (!movie || !screening.startsAt) return null;
 
-  const totalMinutes = timeToMinutes(screening.startsAt) + movie.durationMinutes + CLEANING_MINUTES;
+  const startsAt = timeToMinutes(screening.startsAt);
+  if (startsAt === null) return null;
+
+  const totalMinutes = startsAt + movie.durationMinutes + CLEANING_MINUTES;
   const hours = Math.floor(totalMinutes / 60) % 24;
   const minutes = totalMinutes % 60;
 
