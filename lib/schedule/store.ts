@@ -178,6 +178,124 @@ export async function findOrCreateDistributor(distributorName: string): Promise<
   return created ? mapDistributorFromDatabase(created as DatabaseDistributor) : null;
 }
 
+export async function updateDistributor(distributorId: string, distributorName: string) {
+  const name = distributorName.trim();
+  const normalizedName = normalizeDistributorName(name);
+
+  if (!name || !normalizedName) {
+    throw new Error("Introduce un nombre de distribuidora valido.");
+  }
+
+  if (!supabase) {
+    updateLocalDistributor(distributorId, name, normalizedName);
+    return { id: distributorId, name, normalizedName };
+  }
+
+  const { data: duplicate, error: duplicateError } = await supabase
+    .from("distributors")
+    .select("id,name,normalized_name")
+    .eq("normalized_name", normalizedName)
+    .neq("id", distributorId)
+    .maybeSingle();
+
+  assertSupabaseResult(duplicateError, "No se pudo comprobar si la distribuidora ya existe");
+
+  if (duplicate) {
+    throw new Error("Ya existe una distribuidora con ese nombre. Usa fusionar.");
+  }
+
+  const { data, error } = await supabase
+    .from("distributors")
+    .update({ name, normalized_name: normalizedName })
+    .eq("id", distributorId)
+    .select("id,name,normalized_name")
+    .single();
+
+  assertSupabaseResult(error, "No se pudo renombrar la distribuidora");
+  updateLocalDistributor(distributorId, name, normalizedName);
+
+  return mapDistributorFromDatabase(data as DatabaseDistributor);
+}
+
+export async function deleteDistributor(distributorId: string) {
+  const current = loadLocalSchedule();
+  const localUsageCount = current.movies.filter(
+    (movie) => movie.distributorId === distributorId
+  ).length;
+
+  if (!supabase) {
+    if (localUsageCount > 0) {
+      throw new Error("Esta distribuidora esta usada en peliculas.");
+    }
+
+    deleteLocalDistributor(distributorId);
+    return;
+  }
+
+  const { count, error: countError } = await supabase
+    .from("movies")
+    .select("id", { count: "exact", head: true })
+    .eq("distributor_id", distributorId);
+
+  assertSupabaseResult(countError, "No se pudo comprobar si la distribuidora esta en uso");
+
+  if ((count ?? 0) > 0) {
+    throw new Error("Esta distribuidora esta usada en peliculas.");
+  }
+
+  const { error } = await supabase.from("distributors").delete().eq("id", distributorId);
+  assertSupabaseResult(error, "No se pudo borrar la distribuidora");
+  deleteLocalDistributor(distributorId);
+}
+
+export async function detachAndDeleteDistributor(distributorId: string) {
+  if (!supabase) {
+    detachAndDeleteLocalDistributor(distributorId);
+    return;
+  }
+
+  const { error: moviesError } = await supabase
+    .from("movies")
+    .update({ distributor_id: null })
+    .eq("distributor_id", distributorId);
+
+  assertSupabaseResult(moviesError, "No se pudo quitar la distribuidora de las peliculas");
+
+  const { error: deleteError } = await supabase
+    .from("distributors")
+    .delete()
+    .eq("id", distributorId);
+
+  assertSupabaseResult(deleteError, "No se pudo borrar la distribuidora");
+  detachAndDeleteLocalDistributor(distributorId);
+}
+
+export async function mergeDistributors(sourceDistributorId: string, targetDistributorId: string) {
+  if (sourceDistributorId === targetDistributorId) {
+    throw new Error("Elige otra distribuidora para fusionar.");
+  }
+
+  if (!supabase) {
+    mergeLocalDistributors(sourceDistributorId, targetDistributorId);
+    return;
+  }
+
+  const { error: moviesError } = await supabase
+    .from("movies")
+    .update({ distributor_id: targetDistributorId })
+    .eq("distributor_id", sourceDistributorId);
+
+  assertSupabaseResult(moviesError, "No se pudieron mover las peliculas");
+
+  const { error: deleteError } = await supabase
+    .from("distributors")
+    .delete()
+    .eq("id", sourceDistributorId);
+
+  assertSupabaseResult(deleteError, "No se pudo borrar la distribuidora duplicada");
+  mergeLocalDistributors(sourceDistributorId, targetDistributorId);
+}
+
 export async function saveScreening(screening: Screening) {
   if (!supabase) {
     saveLocalScreening(screening);
@@ -348,6 +466,61 @@ function findOrCreateLocalDistributor(name: string, normalizedName: string) {
   });
 
   return distributor;
+}
+
+function updateLocalDistributor(distributorId: string, name: string, normalizedName: string) {
+  const current = loadLocalSchedule();
+  const duplicate = current.distributors.find(
+    (distributor) =>
+      distributor.id !== distributorId && distributor.normalizedName === normalizedName
+  );
+
+  if (duplicate) {
+    throw new Error("Ya existe una distribuidora con ese nombre. Usa fusionar.");
+  }
+
+  persistLocal({
+    ...current,
+    distributors: current.distributors
+      .map((distributor) =>
+        distributor.id === distributorId ? { ...distributor, name, normalizedName } : distributor
+      )
+      .sort((a, b) => a.name.localeCompare(b.name))
+  });
+}
+
+function deleteLocalDistributor(distributorId: string) {
+  const current = loadLocalSchedule();
+  persistLocal({
+    ...current,
+    distributors: current.distributors.filter((distributor) => distributor.id !== distributorId)
+  });
+}
+
+function detachAndDeleteLocalDistributor(distributorId: string) {
+  const current = loadLocalSchedule();
+  persistLocal({
+    ...current,
+    movies: current.movies.map((movie) =>
+      movie.distributorId === distributorId ? { ...movie, distributorId: null } : movie
+    ),
+    distributors: current.distributors.filter((distributor) => distributor.id !== distributorId)
+  });
+}
+
+function mergeLocalDistributors(sourceDistributorId: string, targetDistributorId: string) {
+  const current = loadLocalSchedule();
+  persistLocal({
+    ...current,
+    movies: current.movies.map((movie) =>
+      movie.distributorId === sourceDistributorId
+        ? { ...movie, distributorId: targetDistributorId }
+        : movie
+    ),
+    distributors: current.distributors.filter(
+      (distributor) => distributor.id !== sourceDistributorId
+    )
+  });
 }
 
 function retireLocalMovie(movieId: string, retiredAt: string) {

@@ -40,13 +40,17 @@ import {
 } from "@/lib/schedule/types";
 import {
   deleteScreening,
+  deleteDistributor,
+  detachAndDeleteDistributor,
   findOrCreateDistributor,
   loadSchedule,
+  mergeDistributors,
   normalizeDistributorName,
   removeMovie,
   saveMovie,
   saveRooms,
-  saveScreening
+  saveScreening,
+  updateDistributor
 } from "@/lib/schedule/store";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -99,6 +103,11 @@ export function ProgrammingScreen() {
   const [importDraft, setImportDraft] = useState<MovieDraft | null>(null);
   const [importSourceUrl, setImportSourceUrl] = useState("");
   const [isMoviePanelOpen, setIsMoviePanelOpen] = useState(false);
+  const [isDistributorPanelOpen, setIsDistributorPanelOpen] = useState(false);
+  const [editingDistributorId, setEditingDistributorId] = useState<string | null>(null);
+  const [distributorRenameDraft, setDistributorRenameDraft] = useState("");
+  const [activeDistributorActionId, setActiveDistributorActionId] = useState<string | null>(null);
+  const [mergeTargetDistributorId, setMergeTargetDistributorId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveError, setSaveError] = useState("");
@@ -153,6 +162,17 @@ export function ProgrammingScreen() {
 
     return counts;
   }, [state.screenings]);
+
+  const distributorMovieCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    state.movies.forEach((movie) => {
+      if (!movie.distributorId) return;
+      counts.set(movie.distributorId, (counts.get(movie.distributorId) ?? 0) + 1);
+    });
+
+    return counts;
+  }, [state.movies]);
 
   const activeDayIndex = WEEKDAYS.findIndex((day) => day.key === activeDay);
 
@@ -379,6 +399,164 @@ export function ProgrammingScreen() {
     if (!result) {
       setSaveError(`No se pudo ${actionLabel} la pelicula.`);
     }
+  };
+
+  const reloadScheduleAfterDistributorError = async () => {
+    try {
+      const loadedState = await loadSchedule();
+      setState(loadedState);
+    } catch {
+      // The visible save error already explains the failed operation.
+    }
+  };
+
+  const startRenameDistributor = (distributor: Distributor) => {
+    setEditingDistributorId(distributor.id);
+    setDistributorRenameDraft(distributor.name);
+    setActiveDistributorActionId(null);
+  };
+
+  const cancelRenameDistributor = () => {
+    setEditingDistributorId(null);
+    setDistributorRenameDraft("");
+  };
+
+  const renameDistributor = async (distributor: Distributor) => {
+    const name = distributorRenameDraft.trim();
+    const normalizedName = normalizeDistributorName(name);
+    const duplicate = state.distributors.find(
+      (item) => item.id !== distributor.id && item.normalizedName === normalizedName
+    );
+
+    if (!name || !normalizedName) {
+      setSaveState("error");
+      setSaveError("Introduce un nombre de distribuidora valido.");
+      return;
+    }
+
+    if (duplicate) {
+      setSaveState("error");
+      setSaveError("Ya existe una distribuidora con ese nombre. Usa fusionar.");
+      return;
+    }
+
+    const previousDistributors = state.distributors;
+    const renamedDistributor = { ...distributor, name, normalizedName };
+
+    setState((current) => ({
+      ...current,
+      distributors: upsertDistributor(current.distributors, renamedDistributor)
+    }));
+
+    const saved = await runSaving(async () => {
+      const savedDistributor = await updateDistributor(distributor.id, name);
+      setState((current) => ({
+        ...current,
+        distributors: upsertDistributor(current.distributors, savedDistributor)
+      }));
+    });
+
+    if (!saved) {
+      setState((current) => ({ ...current, distributors: previousDistributors }));
+      await reloadScheduleAfterDistributorError();
+      return;
+    }
+
+    cancelRenameDistributor();
+  };
+
+  const requestRemoveDistributor = (distributor: Distributor) => {
+    const usageCount = distributorMovieCounts.get(distributor.id) ?? 0;
+
+    setEditingDistributorId(null);
+    setActiveDistributorActionId(distributor.id);
+    setMergeTargetDistributorId(
+      state.distributors.find((item) => item.id !== distributor.id)?.id ?? ""
+    );
+
+    if (usageCount === 0) {
+      const confirmed = window.confirm(`Borrar "${distributor.name}" definitivamente.`);
+      if (!confirmed) {
+        setActiveDistributorActionId(null);
+        return;
+      }
+
+      void removeUnusedDistributor(distributor);
+    }
+  };
+
+  const removeUnusedDistributor = async (distributor: Distributor) => {
+    const previousDistributors = state.distributors;
+
+    setState((current) => ({
+      ...current,
+      distributors: current.distributors.filter((item) => item.id !== distributor.id)
+    }));
+
+    const saved = await runSaving(() => deleteDistributor(distributor.id));
+
+    if (!saved) {
+      setState((current) => ({ ...current, distributors: previousDistributors }));
+      await reloadScheduleAfterDistributorError();
+      return;
+    }
+
+    setActiveDistributorActionId(null);
+  };
+
+  const detachMoviesAndRemoveDistributor = async (distributor: Distributor) => {
+    const previousState = state;
+
+    setState((current) => ({
+      ...current,
+      movies: current.movies.map((movie) =>
+        movie.distributorId === distributor.id ? { ...movie, distributorId: null } : movie
+      ),
+      distributors: current.distributors.filter((item) => item.id !== distributor.id)
+    }));
+
+    const saved = await runSaving(() => detachAndDeleteDistributor(distributor.id));
+
+    if (!saved) {
+      setState(previousState);
+      await reloadScheduleAfterDistributorError();
+      return;
+    }
+
+    setActiveDistributorActionId(null);
+  };
+
+  const mergeDistributorIntoTarget = async (sourceDistributor: Distributor) => {
+    if (!mergeTargetDistributorId || mergeTargetDistributorId === sourceDistributor.id) {
+      setSaveState("error");
+      setSaveError("Elige otra distribuidora para fusionar.");
+      return;
+    }
+
+    const previousState = state;
+
+    setState((current) => ({
+      ...current,
+      movies: current.movies.map((movie) =>
+        movie.distributorId === sourceDistributor.id
+          ? { ...movie, distributorId: mergeTargetDistributorId }
+          : movie
+      ),
+      distributors: current.distributors.filter((item) => item.id !== sourceDistributor.id)
+    }));
+
+    const saved = await runSaving(() =>
+      mergeDistributors(sourceDistributor.id, mergeTargetDistributorId)
+    );
+
+    if (!saved) {
+      setState(previousState);
+      await reloadScheduleAfterDistributorError();
+      return;
+    }
+
+    setActiveDistributorActionId(null);
+    setMergeTargetDistributorId("");
   };
 
   const duplicateDay = async () => {
@@ -831,6 +1009,29 @@ export function ProgrammingScreen() {
                 )}
               </div>
             </section>
+
+            <DistributorManager
+              activeActionId={activeDistributorActionId}
+              distributors={state.distributors}
+              editingDistributorId={editingDistributorId}
+              isOpen={isDistributorPanelOpen}
+              mergeTargetDistributorId={mergeTargetDistributorId}
+              movieCounts={distributorMovieCounts}
+              renameDraft={distributorRenameDraft}
+              onCancelAction={() => {
+                setActiveDistributorActionId(null);
+                setMergeTargetDistributorId("");
+              }}
+              onCancelRename={cancelRenameDistributor}
+              onDetachAndRemove={detachMoviesAndRemoveDistributor}
+              onMerge={mergeDistributorIntoTarget}
+              onRemove={requestRemoveDistributor}
+              onRename={renameDistributor}
+              onRenameDraftChange={setDistributorRenameDraft}
+              onSelectMergeTarget={setMergeTargetDistributorId}
+              onStartRename={startRenameDistributor}
+              onToggle={() => setIsDistributorPanelOpen((current) => !current)}
+            />
           </aside>
         ) : null}
       </div>
@@ -1247,6 +1448,179 @@ function DistributorInput({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function DistributorManager({
+  activeActionId,
+  distributors,
+  editingDistributorId,
+  isOpen,
+  mergeTargetDistributorId,
+  movieCounts,
+  renameDraft,
+  onCancelAction,
+  onCancelRename,
+  onDetachAndRemove,
+  onMerge,
+  onRemove,
+  onRename,
+  onRenameDraftChange,
+  onSelectMergeTarget,
+  onStartRename,
+  onToggle
+}: {
+  activeActionId: string | null;
+  distributors: Distributor[];
+  editingDistributorId: string | null;
+  isOpen: boolean;
+  mergeTargetDistributorId: string;
+  movieCounts: Map<string, number>;
+  renameDraft: string;
+  onCancelAction: () => void;
+  onCancelRename: () => void;
+  onDetachAndRemove: (distributor: Distributor) => void;
+  onMerge: (distributor: Distributor) => void;
+  onRemove: (distributor: Distributor) => void;
+  onRename: (distributor: Distributor) => void;
+  onRenameDraftChange: (value: string) => void;
+  onSelectMergeTarget: (distributorId: string) => void;
+  onStartRename: (distributor: Distributor) => void;
+  onToggle: () => void;
+}) {
+  return (
+    <section className="rounded-md border border-babel-line bg-babel-panel p-4">
+      <button
+        className="flex w-full items-center justify-between gap-3 text-left"
+        onClick={onToggle}
+      >
+        <span>
+          <span className="block font-medium">Distribuidoras</span>
+          <span className="text-xs text-zinc-500">{distributors.length} registradas</span>
+        </span>
+        <span className="rounded border border-babel-line px-2 py-1 text-xs text-zinc-300">
+          {isOpen ? "Ocultar" : "Ver"}
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="mt-3 space-y-2">
+          {distributors.length ? (
+            distributors.map((distributor) => {
+              const usageCount = movieCounts.get(distributor.id) ?? 0;
+              const isEditing = editingDistributorId === distributor.id;
+              const isActionOpen = activeActionId === distributor.id;
+              const mergeTargets = distributors.filter((item) => item.id !== distributor.id);
+
+              return (
+                <div key={distributor.id} className="rounded-md bg-babel-card p-2">
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <input
+                        value={renameDraft}
+                        onChange={(event) => onRenameDraftChange(event.target.value)}
+                        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition focus:border-babel-red"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          className="h-8 flex-1 rounded bg-babel-red px-2 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => onRename(distributor)}
+                          disabled={!renameDraft.trim()}
+                        >
+                          Guardar
+                        </button>
+                        <button
+                          className="h-8 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+                          onClick={onCancelRename}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-white">
+                            {distributor.name}
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            {usageCount === 1
+                              ? "1 pelicula"
+                              : `${usageCount} peliculas`}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <button
+                            className="h-7 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+                            onClick={() => onStartRename(distributor)}
+                          >
+                            Editar
+                          </button>
+                          <button
+                            className="h-7 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:border-red-500 hover:bg-red-950/30 hover:text-white"
+                            onClick={() => onRemove(distributor)}
+                          >
+                            Borrar
+                          </button>
+                        </div>
+                      </div>
+
+                      {isActionOpen && usageCount > 0 ? (
+                        <div className="mt-2 space-y-2 rounded border border-red-500/40 bg-red-950/20 p-2">
+                          <p className="text-xs text-red-200">
+                            Esta distribuidora esta usada en {usageCount}{" "}
+                            {usageCount === 1 ? "pelicula" : "peliculas"}.
+                          </p>
+                          <button
+                            className="h-8 w-full rounded border border-babel-line px-2 text-xs text-zinc-200 transition hover:border-red-500 hover:bg-red-950/40"
+                            onClick={() => onDetachAndRemove(distributor)}
+                          >
+                            Quitar distribuidora de esas peliculas
+                          </button>
+
+                          <div className="grid grid-cols-[1fr_auto] gap-2">
+                            <select
+                              value={mergeTargetDistributorId}
+                              onChange={(event) => onSelectMergeTarget(event.target.value)}
+                              className="h-8 min-w-0 rounded border border-babel-line bg-zinc-950/40 px-2 text-xs text-white outline-none transition focus:border-babel-red"
+                            >
+                              {mergeTargets.map((target) => (
+                                <option key={target.id} value={target.id}>
+                                  {target.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="h-8 rounded bg-white px-2 text-xs font-medium text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => onMerge(distributor)}
+                              disabled={!mergeTargets.length || !mergeTargetDistributorId}
+                            >
+                              Fusionar
+                            </button>
+                          </div>
+
+                          <button
+                            className="h-8 w-full rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+                            onClick={onCancelAction}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <div className="rounded-md border border-dashed border-zinc-700 p-4 text-center text-sm text-zinc-500">
+              Sin distribuidoras
+            </div>
+          )}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
