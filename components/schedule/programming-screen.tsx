@@ -326,13 +326,13 @@ export function ProgrammingScreen() {
 
   return (
     <main className="min-h-screen bg-babel-bg text-white">
-      <div className="border-b border-babel-line bg-babel-bg/92 px-5 py-4 backdrop-blur">
+      <div className="border-b border-babel-line bg-babel-bg/92 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.2em] text-babel-red">
               Cines Babel
             </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl">
+            <h1 className="mt-1 text-xl font-semibold tracking-normal md:text-2xl">
               Programacion
             </h1>
           </div>
@@ -344,18 +344,18 @@ export function ProgrammingScreen() {
               saveState={saveState}
             />
             <button
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-babel-line bg-babel-panel text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-babel-line bg-babel-panel text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
               onClick={() => setWeekStart(shiftWeek(weekStart, -1))}
               title="Semana anterior"
             >
               <ChevronLeft size={18} />
             </button>
-            <div className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-4 text-sm text-zinc-200">
+            <div className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200">
               <CalendarDays size={16} className="text-babel-red" />
               {getWeekLabel(weekStart)}
             </div>
             <button
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-babel-line bg-babel-panel text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-babel-line bg-babel-panel text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
               onClick={() => setWeekStart(shiftWeek(weekStart, 1))}
               title="Semana siguiente"
             >
@@ -367,18 +367,18 @@ export function ProgrammingScreen() {
 
       <div
         className={clsx(
-          "mx-auto grid max-w-[1600px] gap-5 px-5 py-5",
+          "mx-auto grid max-w-[1600px] gap-4 px-4 py-3",
           isMoviePanelOpen ? "xl:grid-cols-[minmax(0,1fr)_320px]" : "xl:grid-cols-1"
         )}
       >
         <section className="min-w-0">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-2 overflow-x-auto rounded-md border border-babel-line bg-babel-panel p-1">
               {WEEKDAYS.map((day, index) => (
                 <button
                   key={day.key}
                   className={clsx(
-                    "min-w-[108px] rounded px-3 py-2 text-left text-sm transition",
+                    "min-w-[96px] rounded px-3 py-1.5 text-left text-sm transition",
                     activeDay === day.key
                       ? "bg-babel-red text-white"
                       : "text-zinc-300 hover:bg-babel-card hover:text-white"
@@ -393,7 +393,7 @@ export function ProgrammingScreen() {
 
             <div className="flex flex-wrap items-center gap-2">
               <button
-                className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
                 onClick={() => setIsMoviePanelOpen((current) => !current)}
               >
                 <Film size={16} className="text-babel-red" />
@@ -438,7 +438,7 @@ export function ProgrammingScreen() {
             </div>
           </div>
 
-          <div className="mb-3 flex items-center justify-between text-sm text-zinc-400">
+          <div className="mb-2 flex items-center justify-between text-sm text-zinc-400">
             <span>
               {WEEKDAYS[activeDayIndex]?.label} · {getDayDateLabel(weekStart, activeDayIndex)}
             </span>
@@ -455,7 +455,7 @@ export function ProgrammingScreen() {
             </span>
           </div>
 
-          <div className="grid min-w-[1060px] grid-cols-5 gap-3 overflow-x-auto pb-4">
+          <div className="grid min-w-[1060px] grid-cols-5 gap-2 overflow-x-auto pb-3">
             {state.rooms.map((room) => {
               const roomScreenings = weekScreenings
                 .filter((screening) => screening.day === activeDay && screening.roomId === room.id)
@@ -463,10 +463,10 @@ export function ProgrammingScreen() {
 
               return (
                 <div key={room.id} className="rounded-md border border-babel-line bg-babel-panel">
-                  <div className="flex items-center justify-between border-b border-babel-line px-3 py-3">
+                  <div className="flex items-center justify-between border-b border-babel-line px-3 py-2">
                     <h2 className="font-medium">{room.name}</h2>
                     <button
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-babel-red text-white transition hover:bg-red-600"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-babel-red text-white transition hover:bg-red-600"
                       onClick={() => addScreening(room)}
                       title={`Anadir sesion en ${room.name}`}
                     >
@@ -474,9 +474,9 @@ export function ProgrammingScreen() {
                     </button>
                   </div>
 
-                  <div className="space-y-3 p-3">
+                  <div className="space-y-2 p-2">
                     {isLoading ? (
-                      <div className="flex h-32 items-center justify-center text-zinc-500">
+                      <div className="flex h-24 items-center justify-center text-zinc-500">
                         <Loader2 className="animate-spin" size={18} />
                       </div>
                     ) : roomScreenings.length ? (
@@ -492,7 +492,7 @@ export function ProgrammingScreen() {
                         />
                       ))
                     ) : (
-                      <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-zinc-700 text-sm text-zinc-500">
+                      <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-700 text-sm text-zinc-500">
                         Sin sesiones
                       </div>
                     )}
@@ -631,42 +631,27 @@ function ScreeningCard({
   onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
   onDelete: () => void;
 }) {
+  const [isEditingMovie, setIsEditingMovie] = useState(!screening.movieId);
   const status = getScreeningStatus(screening, screenings, movies);
   const movie = movies.find((item) => item.id === screening.movieId);
   const endTime = getScreeningEndTime(screening, movies);
 
+  useEffect(() => {
+    if (!screening.movieId) {
+      setIsEditingMovie(true);
+    }
+  }, [screening.movieId]);
+
   return (
     <article
       className={clsx(
-        "rounded-md border p-3 transition",
+        "rounded-md border px-2 py-2 transition",
         (status === "conflict" || status === "invalid") && "border-red-500/70 bg-red-950/30",
         status === "valid" && "border-green-500/60 bg-green-950/20",
         status === "empty" && "border-zinc-700 bg-babel-card"
       )}
     >
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div className="flex min-w-0 gap-3">
-          <Poster movie={movie} />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{movie?.title ?? "Sin pelicula"}</p>
-            <p className="text-xs text-zinc-400">
-              {movie ? `${movie.durationMinutes} min + limpieza` : "Selecciona una pelicula"}
-            </p>
-            {movie?.retiredAt ? (
-              <p className="mt-1 text-xs text-zinc-500">Pelicula retirada</p>
-            ) : null}
-          </div>
-        </div>
-        <button
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
-          onClick={onDelete}
-          title="Eliminar sesion"
-        >
-          <Trash2 size={15} />
-        </button>
-      </div>
-
-      <div className="space-y-2">
+      <div className="flex items-start justify-between gap-2">
         <input
           type="text"
           inputMode="numeric"
@@ -675,25 +660,38 @@ function ScreeningCard({
           value={screening.startsAt}
           onChange={(event) => onChange({ startsAt: event.target.value })}
           className={clsx(
-            "h-9 w-full rounded-md border bg-zinc-950/40 px-2 text-sm text-white outline-none transition",
+            "h-8 w-[68px] rounded-md border bg-zinc-950/40 px-1 text-center text-lg font-semibold tabular-nums text-white outline-none transition",
             status === "invalid"
               ? "border-red-500 focus:border-red-400"
               : "border-babel-line focus:border-babel-red"
           )}
         />
-        {status === "invalid" ? (
-          <p className="text-xs text-red-300">Usa formato HH:mm</p>
-        ) : null}
-
-        <MoviePicker
-          movies={movies}
-          selectedMovieId={screening.movieId}
-          onCreateMovie={onCreateMovie}
-          onSelect={(movieId) => onChange({ movieId })}
-        />
+        <button
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-white"
+          onClick={onDelete}
+          title="Eliminar sesion"
+        >
+          <Trash2 size={14} />
+        </button>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-xs">
+      <div className="mt-1 min-h-[40px] text-center">
+        <p className="compact-session-title text-sm font-semibold uppercase leading-tight text-white">
+          {movie?.title ?? "Sin pelicula"}
+        </p>
+        <p className="mt-0.5 text-[11px] leading-none text-zinc-400">
+          {movie ? `${movie.durationMinutes} min` : "Selecciona una pelicula"}
+        </p>
+        {movie?.retiredAt ? (
+          <p className="mt-1 text-[11px] leading-none text-zinc-500">Retirada</p>
+        ) : null}
+      </div>
+
+      {status === "invalid" ? (
+        <p className="mt-1 text-center text-[11px] leading-none text-red-300">Usa HH:mm</p>
+      ) : null}
+
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
         <span
           className={clsx(
             (status === "conflict" || status === "invalid") && "text-red-300",
@@ -704,13 +702,35 @@ function ScreeningCard({
           {status === "conflict"
             ? "Conflicto"
             : status === "invalid"
-              ? "Hora no valida"
+              ? "Hora"
               : status === "valid"
                 ? "Correcta"
                 : "Pendiente"}
         </span>
-        <span className="text-zinc-400">{endTime ? `Fin ${endTime}` : ""}</span>
+        <span className="truncate text-zinc-500">{endTime ? `Fin ${endTime}` : ""}</span>
+        <button
+          className="rounded border border-babel-line px-1.5 py-0.5 text-zinc-400 transition hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
+          onClick={() => setIsEditingMovie((current) => !current)}
+        >
+          {isEditingMovie ? "Cerrar" : "Cambiar"}
+        </button>
       </div>
+
+      {isEditingMovie ? (
+        <div className="mt-2 border-t border-babel-line pt-2">
+          <MoviePicker
+            movies={movies}
+            selectedMovieId={screening.movieId}
+            onCreateMovie={onCreateMovie}
+            onSelect={(movieId) => {
+              onChange({ movieId });
+              if (movieId) {
+                setIsEditingMovie(false);
+              }
+            }}
+          />
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -756,21 +776,21 @@ function MoviePicker({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Buscar pelicula"
-        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+        className="h-8 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
       />
 
-      <div className="max-h-32 space-y-1 overflow-y-auto">
+      <div className="max-h-28 space-y-1 overflow-y-auto">
         {filteredMovies.length ? (
           filteredMovies.map((movie) => (
             <button
               key={movie.id}
               className={clsx(
-                "w-full rounded border px-2 py-2 text-left text-xs transition",
+                "w-full rounded border px-2 py-1.5 text-left text-xs transition",
                 selectedMovieId === movie.id
                   ? "border-babel-red bg-red-950/30 text-white"
                   : "border-babel-line bg-zinc-950/30 text-zinc-300 hover:border-zinc-500 hover:text-white"
@@ -785,14 +805,14 @@ function MoviePicker({
             </button>
           ))
         ) : (
-          <div className="rounded border border-dashed border-zinc-700 px-2 py-3 text-center text-xs text-zinc-500">
+          <div className="rounded border border-dashed border-zinc-700 px-2 py-2 text-center text-xs text-zinc-500">
             {selectableMovies.length ? "Sin resultados" : "Sin peliculas activas"}
           </div>
         )}
       </div>
 
       {selectedMovie ? (
-        <div className="flex items-center justify-between rounded bg-zinc-950/30 px-2 py-1 text-xs text-zinc-400">
+        <div className="flex items-center justify-between rounded bg-zinc-950/30 px-2 py-1 text-[11px] text-zinc-400">
           <span className="truncate">{selectedMovie.title}</span>
           <button className="text-zinc-500 transition hover:text-white" onClick={() => onSelect(null)}>
             Quitar
@@ -801,14 +821,14 @@ function MoviePicker({
       ) : null}
 
       {isCreating ? (
-        <div className="space-y-2 rounded-md border border-babel-line bg-zinc-950/30 p-2">
+        <div className="space-y-1.5 rounded-md border border-babel-line bg-zinc-950/30 p-2">
           <input
             value={draft.title}
             onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
             placeholder="Titulo"
             className="h-8 w-full rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
           />
-          <div className="grid grid-cols-[84px_1fr] gap-2">
+          <div className="grid grid-cols-[72px_1fr] gap-1.5">
             <input
               type="number"
               min="1"
@@ -830,7 +850,7 @@ function MoviePicker({
               className="h-8 rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-1.5">
             <button
               className="h-8 flex-1 rounded bg-babel-red px-2 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={createMovie}
@@ -848,10 +868,10 @@ function MoviePicker({
         </div>
       ) : (
         <button
-          className="inline-flex h-8 w-full items-center justify-center gap-2 rounded border border-babel-line text-xs text-zinc-300 transition hover:bg-babel-card hover:text-white"
+          className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-babel-line text-xs text-zinc-300 transition hover:bg-babel-card hover:text-white"
           onClick={startCreating}
         >
-          <Plus size={14} />
+          <Plus size={13} />
           Crear pelicula
         </button>
       )}
