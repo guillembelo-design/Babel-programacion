@@ -1,5 +1,5 @@
-import { ProgrammingScreen } from "@/components/schedule/programming-screen";
+import { AuthGate } from "@/components/auth/auth-gate";
 
 export default function Home() {
-  return <ProgrammingScreen />;
+  return <AuthGate />;
 }

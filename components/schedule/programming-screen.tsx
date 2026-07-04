@@ -8,6 +8,7 @@ import {
   Copy,
   Film,
   Loader2,
+  LogOut,
   Plus,
   Search,
   Trash2
@@ -87,7 +88,17 @@ type MovieSearchResponse = {
   error?: string;
 };
 
-export function ProgrammingScreen() {
+type ProgrammingScreenProps = {
+  isSigningOut?: boolean;
+  userEmail?: string;
+  onSignOut?: () => void | Promise<void>;
+};
+
+export function ProgrammingScreen({
+  isSigningOut = false,
+  userEmail = "",
+  onSignOut
+}: ProgrammingScreenProps = {}) {
   const [weekStart, setWeekStart] = useState(() => toDateKey(getFridayWeekStart()));
   const [state, setState] = useState<ScheduleState>({
     rooms: INITIAL_ROOMS,
@@ -840,6 +851,21 @@ export function ProgrammingScreen() {
               saveError={saveError}
               saveState={saveState}
             />
+            {onSignOut ? (
+              <button
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white disabled:cursor-not-allowed disabled:text-zinc-500"
+                onClick={() => void onSignOut()}
+                disabled={isSigningOut}
+                title={userEmail ? `Sesion: ${userEmail}` : "Cerrar sesion"}
+              >
+                {isSigningOut ? (
+                  <Loader2 className="animate-spin" size={14} />
+                ) : (
+                  <LogOut size={14} />
+                )}
+                {isSigningOut ? "Saliendo" : "Cerrar sesion"}
+              </button>
+            ) : null}
             <label className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300">
               Margen entre sesiones
               <input
