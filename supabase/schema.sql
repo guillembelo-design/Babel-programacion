@@ -10,6 +10,7 @@ create table if not exists public.movies (
   title text not null,
   duration_minutes integer not null check (duration_minutes > 0),
   poster_url text,
+  retired_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

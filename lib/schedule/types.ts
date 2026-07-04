@@ -9,6 +9,7 @@ export type Movie = {
   title: string;
   durationMinutes: number;
   posterUrl: string;
+  retiredAt: string | null;
 };
 
 export type Screening = {
@@ -35,7 +36,7 @@ export type ScheduleState = {
   screenings: Screening[];
 };
 
-export type ScreeningStatus = "valid" | "conflict" | "empty";
+export type ScreeningStatus = "valid" | "conflict" | "empty" | "invalid";
 
 export const CLEANING_MINUTES = 15;
 
