@@ -13,8 +13,19 @@ import {
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { clsx } from "clsx";
-import { getScreeningEndTime, getScreeningStatus } from "@/lib/schedule/conflicts";
-import { getDayDateLabel, getFridayWeekStart, getWeekLabel, shiftWeek, toDateKey } from "@/lib/schedule/dates";
+import {
+  compareScreeningStartTimes,
+  getScreeningEndTime,
+  getScreeningStatus,
+  isValidScreeningTime
+} from "@/lib/schedule/conflicts";
+import {
+  getDayDateLabel,
+  getFridayWeekStart,
+  getWeekLabel,
+  shiftWeek,
+  toDateKey
+} from "@/lib/schedule/dates";
 import {
   INITIAL_ROOMS,
   Movie,
@@ -27,13 +38,22 @@ import {
 import {
   deleteScreening,
   loadSchedule,
+  removeMovie,
   saveMovie,
   saveRooms,
   saveScreening
 } from "@/lib/schedule/store";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
-const emptyMovieForm = {
+type SaveState = "saved" | "saving" | "error";
+
+type MovieDraft = {
+  title: string;
+  durationMinutes: number;
+  posterUrl: string;
+};
+
+const emptyMovieForm: MovieDraft = {
   title: "",
   durationMinutes: 100,
   posterUrl: ""
@@ -47,22 +67,32 @@ export function ProgrammingScreen() {
     screenings: []
   });
   const [activeDay, setActiveDay] = useState<WeekdayKey>("friday");
+  const [duplicateSource, setDuplicateSource] = useState<WeekdayKey>("friday");
   const [duplicateTarget, setDuplicateTarget] = useState<WeekdayKey>("saturday");
-  const [movieForm, setMovieForm] = useState(emptyMovieForm);
+  const [movieForm, setMovieForm] = useState<MovieDraft>(emptyMovieForm);
+  const [isMoviePanelOpen, setIsMoviePanelOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [saveState, setSaveState] = useState<"saved" | "saving">("saved");
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     let mounted = true;
 
-    loadSchedule().then((loadedState) => {
-      if (!mounted) return;
-      setState(loadedState);
-      setIsLoading(false);
-      if (!loadedState.rooms.length) {
-        saveRooms(INITIAL_ROOMS);
-      }
-    });
+    loadSchedule()
+      .then((loadedState) => {
+        if (!mounted) return;
+        setState(loadedState);
+        setIsLoading(false);
+        if (!loadedState.rooms.length) {
+          void saveRooms(INITIAL_ROOMS);
+        }
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setIsLoading(false);
+        setSaveState("error");
+        setSaveError(getErrorMessage(error));
+      });
 
     return () => {
       mounted = false;
@@ -70,29 +100,69 @@ export function ProgrammingScreen() {
   }, []);
 
   useEffect(() => {
-    if (duplicateTarget === activeDay) {
-      setDuplicateTarget(WEEKDAYS.find((day) => day.key !== activeDay)?.key ?? "friday");
+    if (duplicateTarget === duplicateSource) {
+      setDuplicateTarget(WEEKDAYS.find((day) => day.key !== duplicateSource)?.key ?? "friday");
     }
-  }, [activeDay, duplicateTarget]);
+  }, [duplicateSource, duplicateTarget]);
 
   const weekScreenings = useMemo(
     () => state.screenings.filter((screening) => screening.weekStart === weekStart),
     [state.screenings, weekStart]
   );
 
+  const selectableMovies = useMemo(
+    () => state.movies.filter((movie) => !movie.retiredAt),
+    [state.movies]
+  );
+
+  const movieUsageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    state.screenings.forEach((screening) => {
+      if (!screening.movieId) return;
+      counts.set(screening.movieId, (counts.get(screening.movieId) ?? 0) + 1);
+    });
+
+    return counts;
+  }, [state.screenings]);
+
   const activeDayIndex = WEEKDAYS.findIndex((day) => day.key === activeDay);
 
-  const persistScreening = async (screening: Screening) => {
+  const runSaving = async (operation: () => Promise<void>) => {
     setSaveState("saving");
+    setSaveError("");
+
+    try {
+      await operation();
+      setSaveState("saved");
+      return true;
+    } catch (error) {
+      setSaveState("error");
+      setSaveError(getErrorMessage(error));
+      return false;
+    }
+  };
+
+  const putScreeningInState = (screening: Screening) => {
     setState((current) => ({
       ...current,
       screenings: [
         ...current.screenings.filter((item) => item.id !== screening.id),
         screening
-      ].sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+      ].sort(compareScreeningStartTimes)
     }));
-    await saveScreening(screening);
-    setSaveState("saved");
+  };
+
+  const persistScreening = async (screening: Screening) => {
+    putScreeningInState(screening);
+
+    if (!isValidScreeningTime(screening.startsAt)) {
+      setSaveState("error");
+      setSaveError("Hora no valida. Usa HH:mm.");
+      return false;
+    }
+
+    return runSaving(() => saveScreening(screening));
   };
 
   const addScreening = (room: Room) => {
@@ -101,7 +171,7 @@ export function ProgrammingScreen() {
       weekStart,
       day: activeDay,
       roomId: room.id,
-      movieId: state.movies[0]?.id ?? null,
+      movieId: selectableMovies[0]?.id ?? null,
       startsAt: "18:00"
     };
 
@@ -112,46 +182,115 @@ export function ProgrammingScreen() {
     void persistScreening({ ...screening, ...patch });
   };
 
-  const removeScreening = async (screeningId: string) => {
-    setSaveState("saving");
+  const removeScreening = async (screening: Screening) => {
     setState((current) => ({
       ...current,
-      screenings: current.screenings.filter((item) => item.id !== screeningId)
+      screenings: current.screenings.filter((item) => item.id !== screening.id)
     }));
-    await deleteScreening(screeningId);
-    setSaveState("saved");
+
+    const saved = await runSaving(() => deleteScreening(screening.id));
+    if (!saved) {
+      putScreeningInState(screening);
+    }
   };
 
-  const createMovie = async () => {
-    const title = movieForm.title.trim();
-    if (!title) return;
+  const createMovieFromDraft = async (draft: MovieDraft) => {
+    const title = draft.title.trim();
+    const durationMinutes = Number(draft.durationMinutes);
+
+    if (!title || !Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      setSaveState("error");
+      setSaveError("Introduce titulo y duracion validos.");
+      return null;
+    }
 
     const movie: Movie = {
       id: crypto.randomUUID(),
       title,
-      durationMinutes: Number(movieForm.durationMinutes),
-      posterUrl: movieForm.posterUrl.trim()
+      durationMinutes,
+      posterUrl: draft.posterUrl.trim(),
+      retiredAt: null
     };
 
-    setSaveState("saving");
     setState((current) => ({
       ...current,
       movies: [...current.movies, movie].sort((a, b) => a.title.localeCompare(b.title))
     }));
-    setMovieForm(emptyMovieForm);
-    await saveMovie(movie);
-    setSaveState("saved");
+
+    const saved = await runSaving(() => saveMovie(movie));
+    if (!saved) {
+      setState((current) => ({
+        ...current,
+        movies: current.movies.filter((item) => item.id !== movie.id)
+      }));
+      return null;
+    }
+
+    return movie;
+  };
+
+  const createMovie = async () => {
+    const movie = await createMovieFromDraft(movieForm);
+    if (movie) {
+      setMovieForm(emptyMovieForm);
+    }
+  };
+
+  const handleRemoveMovie = async (movie: Movie) => {
+    const usageCount = movieUsageCounts.get(movie.id) ?? 0;
+    const actionLabel = usageCount ? "retirar" : "borrar";
+    const confirmed = window.confirm(
+      usageCount
+        ? `Retirar "${movie.title}" del selector. Las sesiones existentes conservaran la pelicula.`
+        : `Borrar "${movie.title}" definitivamente.`
+    );
+
+    if (!confirmed) return;
+
+    const result = await runSaving(async () => {
+      const removal = await removeMovie(movie.id);
+
+      setState((current) => ({
+        ...current,
+        movies:
+          removal.action === "deleted"
+            ? current.movies.filter((item) => item.id !== movie.id)
+            : current.movies.map((item) =>
+                item.id === movie.id ? { ...item, retiredAt: removal.retiredAt } : item
+              )
+      }));
+    });
+
+    if (!result) {
+      setSaveError(`No se pudo ${actionLabel} la pelicula.`);
+    }
   };
 
   const duplicateDay = async () => {
-    if (duplicateTarget === activeDay) return;
+    if (duplicateSource === duplicateTarget) return;
 
-    const sourceScreenings = weekScreenings.filter((screening) => screening.day === activeDay);
+    const sourceScreenings = weekScreenings.filter(
+      (screening) => screening.day === duplicateSource
+    );
     const existingTargetIds = state.screenings
       .filter((screening) => screening.weekStart === weekStart && screening.day === duplicateTarget)
       .map((screening) => screening.id);
 
-    setSaveState("saving");
+    if (!sourceScreenings.length) {
+      setSaveState("error");
+      setSaveError("El dia origen no tiene sesiones.");
+      return;
+    }
+
+    const sourceLabel = getWeekdayLabel(duplicateSource);
+    const targetLabel = getWeekdayLabel(duplicateTarget);
+    const confirmed = window.confirm(
+      `Duplicar ${sourceLabel} sobre ${targetLabel}. Se sustituiran ${existingTargetIds.length} sesiones del dia destino.`
+    );
+
+    if (!confirmed) return;
+
+    const previousScreenings = state.screenings;
     const copies = sourceScreenings.map((screening) => ({
       ...screening,
       id: crypto.randomUUID(),
@@ -163,18 +302,26 @@ export function ProgrammingScreen() {
       screenings: [
         ...current.screenings.filter((screening) => !existingTargetIds.includes(screening.id)),
         ...copies
-      ]
+      ].sort(compareScreeningStartTimes)
     }));
 
-    await Promise.all([
-      ...existingTargetIds.map((id) => deleteScreening(id)),
-      ...copies.map((screening) => saveScreening(screening))
-    ]);
-    setSaveState("saved");
+    const saved = await runSaving(async () => {
+      await Promise.all([
+        ...existingTargetIds.map((id) => deleteScreening(id)),
+        ...copies.map((screening) => saveScreening(screening))
+      ]);
+    });
+
+    if (!saved) {
+      setState((current) => ({ ...current, screenings: previousScreenings }));
+    }
   };
 
   const conflictCount = weekScreenings.filter(
     (screening) => getScreeningStatus(screening, weekScreenings, state.movies) === "conflict"
+  ).length;
+  const invalidTimeCount = weekScreenings.filter(
+    (screening) => getScreeningStatus(screening, weekScreenings, state.movies) === "invalid"
   ).length;
 
   return (
@@ -191,7 +338,11 @@ export function ProgrammingScreen() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge isConfigured={isSupabaseConfigured} saveState={saveState} />
+            <StatusBadge
+              isConfigured={isSupabaseConfigured}
+              saveError={saveError}
+              saveState={saveState}
+            />
             <button
               className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-babel-line bg-babel-panel text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
               onClick={() => setWeekStart(shiftWeek(weekStart, -1))}
@@ -214,7 +365,12 @@ export function ProgrammingScreen() {
         </div>
       </div>
 
-      <div className="mx-auto grid max-w-[1600px] gap-5 px-5 py-5 xl:grid-cols-[1fr_320px]">
+      <div
+        className={clsx(
+          "mx-auto grid max-w-[1600px] gap-5 px-5 py-5",
+          isMoviePanelOpen ? "xl:grid-cols-[minmax(0,1fr)_320px]" : "xl:grid-cols-1"
+        )}
+      >
         <section className="min-w-0">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex gap-2 overflow-x-auto rounded-md border border-babel-line bg-babel-panel p-1">
@@ -236,24 +392,49 @@ export function ProgrammingScreen() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={duplicateTarget}
-                onChange={(event) => setDuplicateTarget(event.target.value as WeekdayKey)}
-                className="h-10 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-white outline-none transition focus:border-babel-red"
-              >
-                {WEEKDAYS.filter((day) => day.key !== activeDay).map((day) => (
-                  <option key={day.key} value={day.key}>
-                    {day.label}
-                  </option>
-                ))}
-              </select>
               <button
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200"
-                onClick={duplicateDay}
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card"
+                onClick={() => setIsMoviePanelOpen((current) => !current)}
               >
-                <Copy size={16} />
-                Duplicar dia
+                <Film size={16} className="text-babel-red" />
+                {isMoviePanelOpen ? "Ocultar" : "Gestionar peliculas"}
               </button>
+
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-babel-line bg-babel-panel p-1">
+                <select
+                  value={duplicateSource}
+                  onChange={(event) => setDuplicateSource(event.target.value as WeekdayKey)}
+                  className="h-9 rounded bg-transparent px-2 text-sm text-white outline-none transition focus:bg-babel-card"
+                  title="Dia origen"
+                >
+                  {WEEKDAYS.map((day) => (
+                    <option key={day.key} value={day.key}>
+                      {day.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-zinc-500">a</span>
+                <select
+                  value={duplicateTarget}
+                  onChange={(event) => setDuplicateTarget(event.target.value as WeekdayKey)}
+                  className="h-9 rounded bg-transparent px-2 text-sm text-white outline-none transition focus:bg-babel-card"
+                  title="Dia destino"
+                >
+                  {WEEKDAYS.filter((day) => day.key !== duplicateSource).map((day) => (
+                    <option key={day.key} value={day.key}>
+                      {day.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="inline-flex h-9 items-center gap-2 rounded bg-white px-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={duplicateDay}
+                  disabled={duplicateSource === duplicateTarget}
+                >
+                  <Copy size={16} />
+                  Duplicar
+                </button>
+              </div>
             </div>
           </div>
 
@@ -261,8 +442,16 @@ export function ProgrammingScreen() {
             <span>
               {WEEKDAYS[activeDayIndex]?.label} · {getDayDateLabel(weekStart, activeDayIndex)}
             </span>
-            <span className={conflictCount ? "text-red-300" : "text-green-300"}>
-              {conflictCount ? `${conflictCount} conflictos` : "Sin conflictos"}
+            <span
+              className={clsx(
+                invalidTimeCount || conflictCount ? "text-red-300" : "text-green-300"
+              )}
+            >
+              {invalidTimeCount
+                ? `${invalidTimeCount} horas no validas`
+                : conflictCount
+                  ? `${conflictCount} conflictos`
+                  : "Sin conflictos"}
             </span>
           </div>
 
@@ -270,7 +459,7 @@ export function ProgrammingScreen() {
             {state.rooms.map((room) => {
               const roomScreenings = weekScreenings
                 .filter((screening) => screening.day === activeDay && screening.roomId === room.id)
-                .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+                .sort(compareScreeningStartTimes);
 
               return (
                 <div key={room.id} className="rounded-md border border-babel-line bg-babel-panel">
@@ -298,7 +487,8 @@ export function ProgrammingScreen() {
                           screening={screening}
                           screenings={weekScreenings}
                           onChange={(patch) => updateScreening(screening, patch)}
-                          onDelete={() => removeScreening(screening.id)}
+                          onCreateMovie={createMovieFromDraft}
+                          onDelete={() => removeScreening(screening)}
                         />
                       ))
                     ) : (
@@ -313,68 +503,114 @@ export function ProgrammingScreen() {
           </div>
         </section>
 
-        <aside className="space-y-4">
-          <section className="rounded-md border border-babel-line bg-babel-panel p-4">
-            <div className="mb-4 flex items-center gap-2">
-              <Film size={18} className="text-babel-red" />
-              <h2 className="font-medium">Peliculas</h2>
-            </div>
-
-            <div className="space-y-3">
-              <input
-                value={movieForm.title}
-                onChange={(event) => setMovieForm((current) => ({ ...current, title: event.target.value }))}
-                placeholder="Titulo"
-                className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-              />
-              <div className="grid grid-cols-[110px_1fr] gap-2">
-                <input
-                  type="number"
-                  min="1"
-                  value={movieForm.durationMinutes}
-                  onChange={(event) =>
-                    setMovieForm((current) => ({
-                      ...current,
-                      durationMinutes: Number(event.target.value)
-                    }))
-                  }
-                  className="h-10 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
-                />
-                <input
-                  value={movieForm.posterUrl}
-                  onChange={(event) =>
-                    setMovieForm((current) => ({ ...current, posterUrl: event.target.value }))
-                  }
-                  placeholder="URL cartel"
-                  className="h-10 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-                />
-              </div>
-              <button
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-babel-red px-3 text-sm font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={createMovie}
-                disabled={!movieForm.title.trim()}
-              >
-                <Plus size={16} />
-                Anadir pelicula
-              </button>
-            </div>
-          </section>
-
-          <section className="rounded-md border border-babel-line bg-babel-panel p-4">
-            <h2 className="mb-3 font-medium">Catalogo</h2>
-            <div className="space-y-2">
-              {state.movies.map((movie) => (
-                <div key={movie.id} className="flex gap-3 rounded-md bg-babel-card p-2">
-                  <Poster movie={movie} />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">{movie.title}</p>
-                    <p className="text-xs text-zinc-400">{movie.durationMinutes} min</p>
-                  </div>
+        {isMoviePanelOpen ? (
+          <aside className="space-y-4">
+            <section className="rounded-md border border-babel-line bg-babel-panel p-4">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Film size={18} className="text-babel-red" />
+                  <h2 className="font-medium">Peliculas</h2>
                 </div>
-              ))}
-            </div>
-          </section>
-        </aside>
+                <button
+                  className="rounded px-2 py-1 text-xs text-zinc-400 transition hover:bg-babel-card hover:text-white"
+                  onClick={() => setIsMoviePanelOpen(false)}
+                >
+                  Ocultar
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <input
+                  value={movieForm.title}
+                  onChange={(event) =>
+                    setMovieForm((current) => ({ ...current, title: event.target.value }))
+                  }
+                  placeholder="Titulo"
+                  className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+                />
+                <div className="grid grid-cols-[110px_1fr] gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    value={movieForm.durationMinutes}
+                    onChange={(event) =>
+                      setMovieForm((current) => ({
+                        ...current,
+                        durationMinutes: Number(event.target.value)
+                      }))
+                    }
+                    className="h-10 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
+                  />
+                  <input
+                    value={movieForm.posterUrl}
+                    onChange={(event) =>
+                      setMovieForm((current) => ({ ...current, posterUrl: event.target.value }))
+                    }
+                    placeholder="URL cartel"
+                    className="h-10 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+                  />
+                </div>
+                <button
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-babel-red px-3 text-sm font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={createMovie}
+                  disabled={!movieForm.title.trim()}
+                >
+                  <Plus size={16} />
+                  Anadir pelicula
+                </button>
+              </div>
+            </section>
+
+            <section className="rounded-md border border-babel-line bg-babel-panel p-4">
+              <h2 className="mb-3 font-medium">Catalogo</h2>
+              <div className="space-y-2">
+                {state.movies.length ? (
+                  state.movies.map((movie) => {
+                    const usageCount = movieUsageCounts.get(movie.id) ?? 0;
+                    const canDelete = usageCount === 0;
+                    const isRetired = Boolean(movie.retiredAt);
+                    const buttonLabel = canDelete
+                      ? "Borrar"
+                      : isRetired
+                        ? "Retirada"
+                        : "Retirar pelicula";
+
+                    return (
+                      <div key={movie.id} className="rounded-md bg-babel-card p-2">
+                        <div className="flex gap-3">
+                          <Poster movie={movie} />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-white">
+                              {movie.title}
+                            </p>
+                            <p className="text-xs text-zinc-400">
+                              {movie.durationMinutes} min
+                              {usageCount ? ` · ${usageCount} sesiones` : ""}
+                            </p>
+                            {isRetired ? (
+                              <p className="mt-1 text-xs text-zinc-500">Retirada del selector</p>
+                            ) : null}
+                          </div>
+                        </div>
+                        <button
+                          className="mt-2 h-8 w-full rounded border border-babel-line text-xs text-zinc-300 transition hover:border-red-500 hover:bg-red-950/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => handleRemoveMovie(movie)}
+                          disabled={isRetired && !canDelete}
+                        >
+                          {buttonLabel}
+                        </button>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-md border border-dashed border-zinc-700 p-4 text-center text-sm text-zinc-500">
+                    Sin peliculas
+                  </div>
+                )}
+              </div>
+            </section>
+          </aside>
+        ) : null}
       </div>
     </main>
   );
@@ -385,12 +621,14 @@ function ScreeningCard({
   screenings,
   movies,
   onChange,
+  onCreateMovie,
   onDelete
 }: {
   screening: Screening;
   screenings: Screening[];
   movies: Movie[];
   onChange: (patch: Partial<Screening>) => void;
+  onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
   onDelete: () => void;
 }) {
   const status = getScreeningStatus(screening, screenings, movies);
@@ -401,7 +639,7 @@ function ScreeningCard({
     <article
       className={clsx(
         "rounded-md border p-3 transition",
-        status === "conflict" && "border-red-500/70 bg-red-950/30",
+        (status === "conflict" || status === "invalid") && "border-red-500/70 bg-red-950/30",
         status === "valid" && "border-green-500/60 bg-green-950/20",
         status === "empty" && "border-zinc-700 bg-babel-card"
       )}
@@ -414,6 +652,9 @@ function ScreeningCard({
             <p className="text-xs text-zinc-400">
               {movie ? `${movie.durationMinutes} min + limpieza` : "Selecciona una pelicula"}
             </p>
+            {movie?.retiredAt ? (
+              <p className="mt-1 text-xs text-zinc-500">Pelicula retirada</p>
+            ) : null}
           </div>
         </div>
         <button
@@ -427,38 +668,194 @@ function ScreeningCard({
 
       <div className="space-y-2">
         <input
-          type="time"
+          type="text"
+          inputMode="numeric"
+          maxLength={5}
+          placeholder="HH:mm"
           value={screening.startsAt}
           onChange={(event) => onChange({ startsAt: event.target.value })}
-          className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition focus:border-babel-red"
+          className={clsx(
+            "h-9 w-full rounded-md border bg-zinc-950/40 px-2 text-sm text-white outline-none transition",
+            status === "invalid"
+              ? "border-red-500 focus:border-red-400"
+              : "border-babel-line focus:border-babel-red"
+          )}
         />
-        <select
-          value={screening.movieId ?? ""}
-          onChange={(event) => onChange({ movieId: event.target.value || null })}
-          className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition focus:border-babel-red"
-        >
-          <option value="">Seleccionar pelicula</option>
-          {movies.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.title}
-            </option>
-          ))}
-        </select>
+        {status === "invalid" ? (
+          <p className="text-xs text-red-300">Usa formato HH:mm</p>
+        ) : null}
+
+        <MoviePicker
+          movies={movies}
+          selectedMovieId={screening.movieId}
+          onCreateMovie={onCreateMovie}
+          onSelect={(movieId) => onChange({ movieId })}
+        />
       </div>
 
       <div className="mt-3 flex items-center justify-between text-xs">
         <span
           className={clsx(
-            status === "conflict" && "text-red-300",
+            (status === "conflict" || status === "invalid") && "text-red-300",
             status === "valid" && "text-green-300",
             status === "empty" && "text-zinc-400"
           )}
         >
-          {status === "conflict" ? "Conflicto" : status === "valid" ? "Correcta" : "Pendiente"}
+          {status === "conflict"
+            ? "Conflicto"
+            : status === "invalid"
+              ? "Hora no valida"
+              : status === "valid"
+                ? "Correcta"
+                : "Pendiente"}
         </span>
         <span className="text-zinc-400">{endTime ? `Fin ${endTime}` : ""}</span>
       </div>
     </article>
+  );
+}
+
+function MoviePicker({
+  selectedMovieId,
+  movies,
+  onSelect,
+  onCreateMovie
+}: {
+  selectedMovieId: string | null;
+  movies: Movie[];
+  onSelect: (movieId: string | null) => void;
+  onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
+}) {
+  const [query, setQuery] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [draft, setDraft] = useState<MovieDraft>(emptyMovieForm);
+
+  const selectedMovie = movies.find((movie) => movie.id === selectedMovieId);
+  const selectableMovies = movies.filter((movie) => !movie.retiredAt);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredMovies = selectableMovies
+    .filter((movie) => movie.title.toLowerCase().includes(normalizedQuery))
+    .slice(0, 6);
+
+  const startCreating = () => {
+    setDraft((current) => ({
+      ...current,
+      title: query.trim() || current.title
+    }));
+    setIsCreating(true);
+  };
+
+  const createMovie = async () => {
+    const movie = await onCreateMovie(draft);
+    if (!movie) return;
+
+    onSelect(movie.id);
+    setQuery("");
+    setDraft(emptyMovieForm);
+    setIsCreating(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Buscar pelicula"
+        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+      />
+
+      <div className="max-h-32 space-y-1 overflow-y-auto">
+        {filteredMovies.length ? (
+          filteredMovies.map((movie) => (
+            <button
+              key={movie.id}
+              className={clsx(
+                "w-full rounded border px-2 py-2 text-left text-xs transition",
+                selectedMovieId === movie.id
+                  ? "border-babel-red bg-red-950/30 text-white"
+                  : "border-babel-line bg-zinc-950/30 text-zinc-300 hover:border-zinc-500 hover:text-white"
+              )}
+              onClick={() => {
+                onSelect(movie.id);
+                setQuery("");
+              }}
+            >
+              <span className="block truncate font-medium">{movie.title}</span>
+              <span className="text-zinc-500">{movie.durationMinutes} min</span>
+            </button>
+          ))
+        ) : (
+          <div className="rounded border border-dashed border-zinc-700 px-2 py-3 text-center text-xs text-zinc-500">
+            {selectableMovies.length ? "Sin resultados" : "Sin peliculas activas"}
+          </div>
+        )}
+      </div>
+
+      {selectedMovie ? (
+        <div className="flex items-center justify-between rounded bg-zinc-950/30 px-2 py-1 text-xs text-zinc-400">
+          <span className="truncate">{selectedMovie.title}</span>
+          <button className="text-zinc-500 transition hover:text-white" onClick={() => onSelect(null)}>
+            Quitar
+          </button>
+        </div>
+      ) : null}
+
+      {isCreating ? (
+        <div className="space-y-2 rounded-md border border-babel-line bg-zinc-950/30 p-2">
+          <input
+            value={draft.title}
+            onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+            placeholder="Titulo"
+            className="h-8 w-full rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+          />
+          <div className="grid grid-cols-[84px_1fr] gap-2">
+            <input
+              type="number"
+              min="1"
+              value={draft.durationMinutes}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  durationMinutes: Number(event.target.value)
+                }))
+              }
+              className="h-8 rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition focus:border-babel-red"
+            />
+            <input
+              value={draft.posterUrl}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, posterUrl: event.target.value }))
+              }
+              placeholder="URL cartel"
+              className="h-8 rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              className="h-8 flex-1 rounded bg-babel-red px-2 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={createMovie}
+              disabled={!draft.title.trim() || Number(draft.durationMinutes) <= 0}
+            >
+              Crear
+            </button>
+            <button
+              className="h-8 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-babel-card hover:text-white"
+              onClick={() => setIsCreating(false)}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          className="inline-flex h-8 w-full items-center justify-center gap-2 rounded border border-babel-line text-xs text-zinc-300 transition hover:bg-babel-card hover:text-white"
+          onClick={startCreating}
+        >
+          <Plus size={14} />
+          Crear pelicula
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -484,20 +881,45 @@ function Poster({ movie }: { movie?: Movie }) {
 
 function StatusBadge({
   isConfigured,
+  saveError,
   saveState
 }: {
   isConfigured: boolean;
-  saveState: "saved" | "saving";
+  saveError: string;
+  saveState: SaveState;
 }) {
+  const label =
+    saveState === "saving"
+      ? "Guardando"
+      : saveState === "error"
+        ? "Error al guardar"
+        : isConfigured
+          ? "Supabase guardado"
+          : "Local guardado";
+
   return (
-    <div className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300">
+    <div
+      className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300"
+      title={saveError}
+    >
       <span
         className={clsx(
           "h-2 w-2 rounded-full",
-          saveState === "saving" ? "bg-yellow-300" : "bg-green-400"
+          saveState === "saving" && "bg-yellow-300",
+          saveState === "saved" && "bg-green-400",
+          saveState === "error" && "bg-red-400"
         )}
       />
-      {saveState === "saving" ? "Guardando" : isConfigured ? "Supabase" : "Local"}
+      {label}
     </div>
   );
+}
+
+function getWeekdayLabel(dayKey: WeekdayKey) {
+  return WEEKDAYS.find((day) => day.key === dayKey)?.label ?? dayKey;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return "Error inesperado";
 }
