@@ -10,16 +10,13 @@ import {
   Loader2,
   LogOut,
   Plus,
-  Search,
-  Trash2
+  Search
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "clsx";
 import {
   compareScreeningStartTimes,
-  getScreeningEndTime,
   getScreeningStatus,
-  getTurnoverConflictForScreening,
   getTurnoverConflicts,
   isValidScreeningTime
 } from "@/lib/schedule/conflicts";
@@ -57,36 +54,22 @@ import {
   updateDistributor
 } from "@/lib/schedule/store";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-
-type SaveState = "saved" | "saving" | "error";
-type MovieSearchState = "idle" | "searching" | "error";
-
-type MovieDraft = {
-  title: string;
-  durationMinutes: number;
-  distributorName: string;
-  distributorId: string | null;
-};
-
-const emptyMovieForm: MovieDraft = {
-  title: "",
-  durationMinutes: 100,
-  distributorName: "",
-  distributorId: null
-};
-
-type MovieSearchResult = {
-  sourceId: string;
-  sourceUrl: string;
-  title: string;
-  year: string | null;
-  durationMinutes: number | null;
-};
-
-type MovieSearchResponse = {
-  results?: MovieSearchResult[];
-  error?: string;
-};
+import { DistributorManager } from "@/components/distributors/distributor-manager";
+import {
+  DistributorInput,
+  MovieDraftFields,
+  MovieEditFields
+} from "@/components/movies/movie-fields";
+import { getDistributorName } from "@/components/movies/movie-utils";
+import {
+  emptyMovieForm,
+  MovieDraft,
+  MovieSearchResponse,
+  MovieSearchResult,
+  MovieSearchState
+} from "@/components/movies/types";
+import { ScreeningCard } from "./screening-card";
+import { SaveState, StatusBadge } from "./status-badge";
 
 type ProgrammingScreenProps = {
   isSigningOut?: boolean;
@@ -251,16 +234,6 @@ export function ProgrammingScreen({
       return previous?.movieId === movieId || current?.movieId === movieId;
     });
 
-  const putScreeningInState = (screening: Screening) => {
-    setState((current) => ({
-      ...current,
-      screenings: [
-        ...current.screenings.filter((item) => item.id !== screening.id),
-        screening
-      ].sort(compareScreeningStartTimes)
-    }));
-  };
-
   const revertScreeningToLastSaved = (screeningId: string) => {
     const savedScreening = persistedScreeningsRef.current.find((item) => item.id === screeningId);
 
@@ -276,6 +249,8 @@ export function ProgrammingScreen({
   };
 
   const persistScreening = async (screening: Screening) => {
+    const previousScreenings = state.screenings;
+    const previousPersistedScreenings = persistedScreeningsRef.current;
     const nextScreenings = buildScreeningsWithPatch(screening);
     const nextPersistedScreenings = [
       ...persistedScreeningsRef.current.filter((item) => item.id !== screening.id),
@@ -297,10 +272,14 @@ export function ProgrammingScreen({
 
     setState((current) => ({ ...current, screenings: nextScreenings }));
     const saved = await runSaving(() => saveScreening(screening));
-    if (saved) {
-      rememberPersistedScreenings(nextPersistedScreenings);
+    if (!saved) {
+      setState((current) => ({ ...current, screenings: previousScreenings }));
+      rememberPersistedScreenings(previousPersistedScreenings);
+      return false;
     }
-    return saved;
+
+    rememberPersistedScreenings(nextPersistedScreenings);
+    return true;
   };
 
   const addScreening = (room: Room) => {
@@ -321,14 +300,19 @@ export function ProgrammingScreen({
   };
 
   const removeScreening = async (screening: Screening) => {
+    const previousScreenings = state.screenings;
+    const previousPersistedScreenings = persistedScreeningsRef.current;
+    const nextScreenings = state.screenings.filter((item) => item.id !== screening.id);
+
     setState((current) => ({
       ...current,
-      screenings: current.screenings.filter((item) => item.id !== screening.id)
+      screenings: nextScreenings
     }));
 
     const saved = await runSaving(() => deleteScreening(screening.id));
     if (!saved) {
-      putScreeningInState(screening);
+      setState((current) => ({ ...current, screenings: previousScreenings }));
+      rememberPersistedScreenings(previousPersistedScreenings);
       return;
     }
 
@@ -570,6 +554,7 @@ export function ProgrammingScreen({
   const reloadScheduleAfterDistributorError = async () => {
     try {
       const loadedState = await loadSchedule();
+      rememberPersistedScreenings(loadedState.screenings);
       setState(loadedState);
     } catch {
       // The visible save error already explains the failed operation.
@@ -787,6 +772,7 @@ export function ProgrammingScreen({
     if (!confirmed) return;
 
     const previousScreenings = state.screenings;
+    const previousPersistedScreenings = persistedScreeningsRef.current;
     const copies = sourceScreenings.map((screening) => ({
       ...screening,
       id: crypto.randomUUID(),
@@ -817,6 +803,7 @@ export function ProgrammingScreen({
 
     if (!saved) {
       setState((current) => ({ ...current, screenings: previousScreenings }));
+      rememberPersistedScreenings(previousPersistedScreenings);
       return;
     }
 
@@ -1330,718 +1317,6 @@ export function ProgrammingScreen({
   );
 }
 
-function ScreeningCard({
-  screening,
-  screenings,
-  distributors,
-  movies,
-  turnoverMinutes,
-  onChange,
-  onCreateMovie,
-  onDelete
-}: {
-  screening: Screening;
-  screenings: Screening[];
-  distributors: Distributor[];
-  movies: Movie[];
-  turnoverMinutes: number;
-  onChange: (patch: Partial<Screening>) => void;
-  onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
-  onDelete: () => void;
-}) {
-  const [isEditingMovie, setIsEditingMovie] = useState(!screening.movieId);
-  const status = getScreeningStatus(screening, screenings, movies, turnoverMinutes);
-  const turnoverConflict = getTurnoverConflictForScreening(
-    screening,
-    screenings,
-    movies,
-    turnoverMinutes
-  );
-  const movie = movies.find((item) => item.id === screening.movieId);
-  const endTime = getScreeningEndTime(screening, movies);
-
-  useEffect(() => {
-    if (!screening.movieId) {
-      setIsEditingMovie(true);
-    }
-  }, [screening.movieId]);
-
-  return (
-    <article
-      className={clsx(
-        "rounded-md border px-2 py-2 transition",
-        (status === "conflict" || status === "invalid") && "border-red-500/70 bg-red-950/30",
-        status === "valid" && "border-green-500/60 bg-green-950/20",
-        status === "empty" && "border-zinc-700 bg-babel-card"
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={5}
-          placeholder="HH:mm"
-          value={screening.startsAt}
-          onChange={(event) => onChange({ startsAt: event.target.value })}
-          className={clsx(
-            "h-8 w-[68px] rounded-md border bg-zinc-950/40 px-1 text-center text-lg font-semibold tabular-nums text-white outline-none transition",
-            status === "invalid"
-              ? "border-red-500 focus:border-red-400"
-              : "border-babel-line focus:border-babel-red"
-          )}
-        />
-        <button
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-white"
-          onClick={onDelete}
-          title="Eliminar sesion"
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
-
-      <div className="mt-1 min-h-[40px] text-center">
-        <p className="compact-session-title text-sm font-semibold uppercase leading-tight text-white">
-          {movie?.title ?? "Sin pelicula"}
-        </p>
-        <p className="mt-0.5 text-[11px] leading-none text-zinc-400">
-          {movie ? `${movie.durationMinutes} min` : "Selecciona una pelicula"}
-        </p>
-        {movie?.retiredAt ? (
-          <p className="mt-1 text-[11px] leading-none text-zinc-500">Retirada</p>
-        ) : null}
-      </div>
-
-      {status === "invalid" ? (
-        <p className="mt-1 text-center text-[11px] leading-none text-red-300">Usa HH:mm</p>
-      ) : null}
-
-      {turnoverConflict ? (
-        <p className="mt-1 text-center text-[11px] leading-tight text-red-200">
-          Posible solape: anterior termina a las {turnoverConflict.previousEndsAt}. Minimo{" "}
-          {turnoverConflict.minimumStartAt}. Margen real {turnoverConflict.actualGapMinutes} min.
-        </p>
-      ) : null}
-
-      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
-        <span
-          className={clsx(
-            (status === "conflict" || status === "invalid") && "text-red-300",
-            status === "valid" && "text-green-300",
-            status === "empty" && "text-zinc-400"
-          )}
-        >
-          {status === "conflict"
-            ? "Conflicto"
-            : status === "invalid"
-              ? "Hora"
-              : status === "valid"
-                ? "Correcta"
-                : "Pendiente"}
-        </span>
-        <span className="truncate text-zinc-500">{endTime ? `Fin ${endTime}` : ""}</span>
-        <button
-          className="rounded border border-babel-line px-1.5 py-0.5 text-zinc-400 transition hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
-          onClick={() => setIsEditingMovie((current) => !current)}
-        >
-          {isEditingMovie ? "Cerrar" : "Cambiar"}
-        </button>
-      </div>
-
-      {isEditingMovie ? (
-        <div className="mt-2 border-t border-babel-line pt-2">
-          <MoviePicker
-            distributors={distributors}
-            movies={movies}
-            selectedMovieId={screening.movieId}
-            onCreateMovie={onCreateMovie}
-            onSelect={(movieId) => {
-              onChange({ movieId });
-              if (movieId) {
-                setIsEditingMovie(false);
-              }
-            }}
-          />
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-function MoviePicker({
-  selectedMovieId,
-  distributors,
-  movies,
-  onSelect,
-  onCreateMovie
-}: {
-  selectedMovieId: string | null;
-  distributors: Distributor[];
-  movies: Movie[];
-  onSelect: (movieId: string | null) => void;
-  onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
-}) {
-  const [query, setQuery] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [draft, setDraft] = useState<MovieDraft>(emptyMovieForm);
-
-  const selectedMovie = movies.find((movie) => movie.id === selectedMovieId);
-  const selectableMovies = movies.filter((movie) => !movie.retiredAt);
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredMovies = selectableMovies
-    .filter((movie) => movie.title.toLowerCase().includes(normalizedQuery))
-    .slice(0, 6);
-
-  const startCreating = () => {
-    setDraft((current) => ({
-      ...current,
-      title: query.trim() || current.title
-    }));
-    setIsCreating(true);
-  };
-
-  const createMovie = async () => {
-    const movie = await onCreateMovie(draft);
-    if (!movie) return;
-
-    onSelect(movie.id);
-    setQuery("");
-    setDraft(emptyMovieForm);
-    setIsCreating(false);
-  };
-
-  return (
-    <div className="space-y-1.5">
-      <input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Buscar pelicula"
-        className="h-8 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-      />
-
-      <div className="max-h-28 space-y-1 overflow-y-auto">
-        {filteredMovies.length ? (
-          filteredMovies.map((movie) => (
-            <button
-              key={movie.id}
-              className={clsx(
-                "w-full rounded border px-2 py-1.5 text-left text-xs transition",
-                selectedMovieId === movie.id
-                  ? "border-babel-red bg-red-950/30 text-white"
-                  : "border-babel-line bg-zinc-950/30 text-zinc-300 hover:border-zinc-500 hover:text-white"
-              )}
-              onClick={() => {
-                onSelect(movie.id);
-                setQuery("");
-              }}
-            >
-              <span className="block truncate font-medium">{movie.title}</span>
-              <span className="text-zinc-500">{movie.durationMinutes} min</span>
-            </button>
-          ))
-        ) : (
-          <div className="rounded border border-dashed border-zinc-700 px-2 py-2 text-center text-xs text-zinc-500">
-            {selectableMovies.length ? "Sin resultados" : "Sin peliculas activas"}
-          </div>
-        )}
-      </div>
-
-      {selectedMovie ? (
-        <div className="flex items-center justify-between rounded bg-zinc-950/30 px-2 py-1 text-[11px] text-zinc-400">
-          <span className="truncate">{selectedMovie.title}</span>
-          <button className="text-zinc-500 transition hover:text-white" onClick={() => onSelect(null)}>
-            Quitar
-          </button>
-        </div>
-      ) : null}
-
-      {isCreating ? (
-        <div className="space-y-1.5 rounded-md border border-babel-line bg-zinc-950/30 p-2">
-          <input
-            value={draft.title}
-            onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-            placeholder="Titulo"
-            className="h-8 w-full rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-          />
-          <input
-            type="number"
-            min="1"
-            value={draft.durationMinutes}
-            onChange={(event) =>
-              setDraft((current) => ({
-                ...current,
-                durationMinutes: Number(event.target.value)
-              }))
-            }
-            className="h-8 w-full rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition focus:border-babel-red"
-          />
-          <DistributorInput
-            compact
-            distributors={distributors}
-            value={draft.distributorName}
-            selectedDistributorId={draft.distributorId}
-            onChange={(distributorName) =>
-              setDraft((current) => ({
-                ...current,
-                distributorName,
-                distributorId: null
-              }))
-            }
-            onSelect={(distributor) =>
-              setDraft((current) => ({
-                ...current,
-                distributorName: distributor.name,
-                distributorId: distributor.id
-              }))
-            }
-          />
-          <div className="flex gap-1.5">
-            <button
-              className="h-8 flex-1 rounded bg-babel-red px-2 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={createMovie}
-              disabled={!draft.title.trim() || Number(draft.durationMinutes) <= 0}
-            >
-              Crear
-            </button>
-            <button
-              className="h-8 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-babel-card hover:text-white"
-              onClick={() => setIsCreating(false)}
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-babel-line text-xs text-zinc-300 transition hover:bg-babel-card hover:text-white"
-          onClick={startCreating}
-        >
-          <Plus size={13} />
-          Crear pelicula
-        </button>
-      )}
-    </div>
-  );
-}
-
-function MovieDraftFields({
-  draft,
-  distributors,
-  sourceUrl,
-  onChange
-}: {
-  draft: MovieDraft;
-  distributors: Distributor[];
-  sourceUrl: string;
-  onChange: (draft: MovieDraft) => void;
-}) {
-  const updateDraft = (patch: Partial<MovieDraft>) => {
-    onChange({ ...draft, ...patch });
-  };
-
-  return (
-    <div className="space-y-2">
-      <input
-        value={draft.title}
-        onChange={(event) => updateDraft({ title: event.target.value })}
-        placeholder="Titulo"
-        className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-      />
-      <input
-        type="number"
-        min="1"
-        value={draft.durationMinutes}
-        onChange={(event) => updateDraft({ durationMinutes: Number(event.target.value) })}
-        className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
-      />
-      <DistributorInput
-        distributors={distributors}
-        value={draft.distributorName}
-        selectedDistributorId={draft.distributorId}
-        onChange={(distributorName) =>
-          updateDraft({
-            distributorName,
-            distributorId: null
-          })
-        }
-        onSelect={(distributor) =>
-          updateDraft({
-            distributorName: distributor.name,
-            distributorId: distributor.id
-          })
-        }
-      />
-      <div className="flex flex-wrap gap-2 text-xs">
-        {sourceUrl ? (
-          <a
-            className="text-zinc-400 transition hover:text-white"
-            href={sourceUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Ver en Wikidata
-          </a>
-        ) : null}
-        <a
-          className="text-zinc-400 transition hover:text-white"
-          href={getFilmAffinitySearchUrl(draft.title)}
-          rel="noreferrer"
-          target="_blank"
-        >
-          Comprobar en FilmAffinity
-        </a>
-      </div>
-    </div>
-  );
-}
-
-function MovieEditFields({
-  draft,
-  distributors,
-  onChange
-}: {
-  draft: MovieDraft;
-  distributors: Distributor[];
-  onChange: (draft: MovieDraft) => void;
-}) {
-  const updateDraft = (patch: Partial<MovieDraft>) => {
-    onChange({ ...draft, ...patch });
-  };
-
-  return (
-    <div className="space-y-2">
-      <input
-        value={draft.title}
-        onChange={(event) => updateDraft({ title: event.target.value })}
-        placeholder="Titulo"
-        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
-      />
-      <input
-        type="number"
-        min="1"
-        value={draft.durationMinutes}
-        onChange={(event) => updateDraft({ durationMinutes: Number(event.target.value) })}
-        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition focus:border-babel-red"
-      />
-      <DistributorInput
-        compact
-        distributors={distributors}
-        value={draft.distributorName}
-        selectedDistributorId={draft.distributorId}
-        onChange={(distributorName) =>
-          updateDraft({
-            distributorName,
-            distributorId: null
-          })
-        }
-        onSelect={(distributor) =>
-          updateDraft({
-            distributorName: distributor.name,
-            distributorId: distributor.id
-          })
-        }
-      />
-    </div>
-  );
-}
-
-function DistributorInput({
-  value,
-  selectedDistributorId,
-  distributors,
-  onChange,
-  onSelect,
-  compact = false
-}: {
-  value: string;
-  selectedDistributorId: string | null;
-  distributors: Distributor[];
-  onChange: (value: string) => void;
-  onSelect: (distributor: Distributor) => void;
-  compact?: boolean;
-}) {
-  const selectedDistributor = distributors.find(
-    (distributor) => distributor.id === selectedDistributorId
-  );
-  const suggestions = getDistributorSuggestions(distributors, value).filter(
-    (distributor) => distributor.id !== selectedDistributorId
-  );
-
-  return (
-    <div className="space-y-1">
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Distribuidora"
-        className={clsx(
-          "w-full rounded border border-babel-line bg-babel-card text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red",
-          compact ? "h-8 px-2 text-xs" : "h-10 px-3 text-sm"
-        )}
-      />
-
-      {selectedDistributor ? (
-        <div className="flex items-center justify-between rounded bg-zinc-950/30 px-2 py-1 text-[11px] text-zinc-400">
-          <span className="truncate">{selectedDistributor.name}</span>
-          <button className="text-zinc-500 transition hover:text-white" onClick={() => onChange("")}>
-            Quitar
-          </button>
-        </div>
-      ) : null}
-
-      {suggestions.length ? (
-        <div className="space-y-1">
-          <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-600">
-            Coincidencias
-          </p>
-          {suggestions.map((distributor) => (
-            <button
-              key={distributor.id}
-              className="w-full rounded border border-babel-line bg-zinc-950/30 px-2 py-1 text-left text-xs text-zinc-300 transition hover:border-zinc-500 hover:text-white"
-              onClick={() => onSelect(distributor)}
-            >
-              {distributor.name}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function DistributorManager({
-  activeActionId,
-  activeAction,
-  distributors,
-  editingDistributorId,
-  isOpen,
-  mergeTargetDistributorId,
-  movieCounts,
-  renameDraft,
-  onCancelAction,
-  onCancelRename,
-  onDetachAndRemove,
-  onMerge,
-  onRequestMerge,
-  onRemove,
-  onRename,
-  onRenameDraftChange,
-  onSelectMergeTarget,
-  onStartRename,
-  onToggle
-}: {
-  activeActionId: string | null;
-  activeAction: "remove" | "merge" | null;
-  distributors: Distributor[];
-  editingDistributorId: string | null;
-  isOpen: boolean;
-  mergeTargetDistributorId: string;
-  movieCounts: Map<string, number>;
-  renameDraft: string;
-  onCancelAction: () => void;
-  onCancelRename: () => void;
-  onDetachAndRemove: (distributor: Distributor) => void;
-  onMerge: (distributor: Distributor) => void;
-  onRequestMerge: (distributor: Distributor) => void;
-  onRemove: (distributor: Distributor) => void;
-  onRename: (distributor: Distributor) => void;
-  onRenameDraftChange: (value: string) => void;
-  onSelectMergeTarget: (distributorId: string) => void;
-  onStartRename: (distributor: Distributor) => void;
-  onToggle: () => void;
-}) {
-  return (
-    <section className="rounded-md border border-babel-line bg-babel-panel p-4">
-      <button
-        className="flex w-full items-center justify-between gap-3 text-left"
-        onClick={onToggle}
-      >
-        <span>
-          <span className="block font-medium">Distribuidoras</span>
-          <span className="text-xs text-zinc-500">{distributors.length} registradas</span>
-        </span>
-        <span className="rounded border border-babel-line px-2 py-1 text-xs text-zinc-300">
-          {isOpen ? "Ocultar" : "Ver"}
-        </span>
-      </button>
-
-      {isOpen ? (
-        <div className="mt-3 space-y-2">
-          {distributors.length ? (
-            distributors.map((distributor) => {
-              const usageCount = movieCounts.get(distributor.id) ?? 0;
-              const isEditing = editingDistributorId === distributor.id;
-              const isActionOpen = activeActionId === distributor.id;
-              const isMergeOpen = isActionOpen && activeAction === "merge";
-              const isRemoveOpen = isActionOpen && activeAction === "remove";
-              const mergeTargets = distributors.filter((item) => item.id !== distributor.id);
-
-              return (
-                <div key={distributor.id} className="rounded-md bg-babel-card p-2">
-                  {isEditing ? (
-                    <div className="space-y-2">
-                      <input
-                        value={renameDraft}
-                        onChange={(event) => onRenameDraftChange(event.target.value)}
-                        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition focus:border-babel-red"
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          className="h-8 flex-1 rounded bg-babel-red px-2 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                          onClick={() => onRename(distributor)}
-                          disabled={!renameDraft.trim()}
-                        >
-                          Guardar
-                        </button>
-                        <button
-                          className="h-8 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
-                          onClick={onCancelRename}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-white">
-                            {distributor.name}
-                          </p>
-                          <p className="text-xs text-zinc-500">
-                            {usageCount === 1
-                              ? "1 pelicula"
-                              : `${usageCount} peliculas`}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                          <button
-                            className="h-7 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
-                            onClick={() => onStartRename(distributor)}
-                          >
-                            Editar
-                          </button>
-                          <button
-                            className="h-7 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                            onClick={() => onRequestMerge(distributor)}
-                            disabled={mergeTargets.length === 0}
-                          >
-                            Fusionar
-                          </button>
-                          <button
-                            className="h-7 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:border-red-500 hover:bg-red-950/30 hover:text-white"
-                            onClick={() => onRemove(distributor)}
-                          >
-                            Borrar
-                          </button>
-                        </div>
-                      </div>
-
-                      {isRemoveOpen && usageCount > 0 ? (
-                        <div className="mt-2 space-y-2 rounded border border-red-500/40 bg-red-950/20 p-2">
-                          <p className="text-xs text-red-200">
-                            Esta distribuidora esta usada en {usageCount}{" "}
-                            {usageCount === 1 ? "pelicula" : "peliculas"}.
-                          </p>
-                          <button
-                            className="h-8 w-full rounded border border-babel-line px-2 text-xs text-zinc-200 transition hover:border-red-500 hover:bg-red-950/40"
-                            onClick={() => onDetachAndRemove(distributor)}
-                          >
-                            Quitar distribuidora de esas peliculas
-                          </button>
-                          <button
-                            className="h-8 w-full rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
-                            onClick={onCancelAction}
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      ) : null}
-
-                      {isMergeOpen ? (
-                        <div className="mt-2 space-y-2 rounded border border-babel-line bg-zinc-950/30 p-2">
-                          <p className="text-xs text-zinc-400">
-                            Mover {usageCount}{" "}
-                            {usageCount === 1 ? "pelicula" : "peliculas"} a:
-                          </p>
-                          <div className="grid grid-cols-[1fr_auto] gap-2">
-                            <select
-                              value={mergeTargetDistributorId}
-                              onChange={(event) => onSelectMergeTarget(event.target.value)}
-                              className="h-8 min-w-0 rounded border border-babel-line bg-zinc-950/40 px-2 text-xs text-white outline-none transition focus:border-babel-red"
-                            >
-                              {mergeTargets.map((target) => (
-                                <option key={target.id} value={target.id}>
-                                  {target.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              className="h-8 rounded bg-white px-2 text-xs font-medium text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                              onClick={() => onMerge(distributor)}
-                              disabled={!mergeTargets.length || !mergeTargetDistributorId}
-                            >
-                              Confirmar
-                            </button>
-                          </div>
-                          <button
-                            className="h-8 w-full rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
-                            onClick={onCancelAction}
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              );
-            })
-          ) : (
-            <div className="rounded-md border border-dashed border-zinc-700 p-4 text-center text-sm text-zinc-500">
-              Sin distribuidoras
-            </div>
-          )}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function StatusBadge({
-  isConfigured,
-  saveError,
-  saveState
-}: {
-  isConfigured: boolean;
-  saveError: string;
-  saveState: SaveState;
-}) {
-  const label =
-    saveState === "saving"
-      ? "Guardando"
-      : saveState === "error"
-        ? "Error al guardar"
-        : isConfigured
-          ? "Supabase guardado"
-          : "Local guardado";
-
-  return (
-    <div
-      className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300"
-      title={saveError}
-    >
-      <span
-        className={clsx(
-          "h-2 w-2 rounded-full",
-          saveState === "saving" && "bg-yellow-300",
-          saveState === "saved" && "bg-green-400",
-          saveState === "error" && "bg-red-400"
-        )}
-      />
-      {label}
-    </div>
-  );
-}
-
 function getWeekdayLabel(dayKey: WeekdayKey) {
   return WEEKDAYS.find((day) => day.key === dayKey)?.label ?? dayKey;
 }
@@ -2051,31 +1326,6 @@ function upsertDistributor(distributors: Distributor[], distributor: Distributor
     ...distributors.filter((item) => item.id !== distributor.id),
     distributor
   ].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function getDistributorName(distributors: Distributor[], distributorId: string | null) {
-  if (!distributorId) return "";
-  return distributors.find((distributor) => distributor.id === distributorId)?.name ?? "";
-}
-
-function getDistributorSuggestions(distributors: Distributor[], value: string) {
-  const normalizedValue = normalizeDistributorName(value);
-
-  if (!normalizedValue) {
-    return [];
-  }
-
-  return distributors
-    .filter(
-      (distributor) =>
-        distributor.normalizedName.includes(normalizedValue) ||
-        normalizedValue.includes(distributor.normalizedName)
-    )
-    .slice(0, 3);
-}
-
-function getFilmAffinitySearchUrl(title: string) {
-  return `https://www.filmaffinity.com/es/search.php?stext=${encodeURIComponent(title.trim())}`;
 }
 
 function getErrorMessage(error: unknown) {
