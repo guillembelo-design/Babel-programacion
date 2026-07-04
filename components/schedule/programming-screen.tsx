@@ -36,7 +36,21 @@ import {
   WeekdayKey,
   WEEKDAYS
 } from "@/lib/schedule/types";
+import {
+  createMovieAccentColorMap,
+  FALLBACK_MOVIE_ACCENT_COLOR
+} from "@/lib/schedule/movie-colors";
 import { getNextScreeningStartTime } from "@/lib/schedule/screenings";
+import {
+  formatTimelineTime,
+  getNextScreeningForSameRoom,
+  getScreeningGapInfo,
+  getScreeningTimelineLayout,
+  getTimelineHeight,
+  getTimelineHourMarks,
+  getTimelineOffsetForMinutes,
+  getTimelineRangeForDay
+} from "@/lib/schedule/timeline";
 import {
   deleteScreening,
   deleteDistributor,
@@ -147,6 +161,10 @@ export function ProgrammingScreen({
   }, [rememberPersistedScreenings]);
 
   useEffect(() => {
+    setDuplicateSource(activeDay);
+  }, [activeDay]);
+
+  useEffect(() => {
     if (duplicateTarget === duplicateSource) {
       setDuplicateTarget(WEEKDAYS.find((day) => day.key !== duplicateSource)?.key ?? "friday");
     }
@@ -155,6 +173,15 @@ export function ProgrammingScreen({
   const weekScreenings = useMemo(
     () => state.screenings.filter((screening) => screening.weekStart === weekStart),
     [state.screenings, weekStart]
+  );
+  const movieAccentColors = useMemo(
+    () =>
+      createMovieAccentColorMap({
+        movies: state.movies,
+        screenings: state.screenings,
+        weekStart
+      }),
+    [state.movies, state.screenings, weekStart]
   );
 
   const selectableMovies = useMemo(
@@ -185,6 +212,19 @@ export function ProgrammingScreen({
   }, [state.movies]);
 
   const activeDayIndex = WEEKDAYS.findIndex((day) => day.key === activeDay);
+  const timelineRange = useMemo(
+    () =>
+      getTimelineRangeForDay({
+        day: activeDay,
+        movies: state.movies,
+        screenings: state.screenings,
+        turnoverMinutes,
+        weekStart
+      }),
+    [activeDay, state.movies, state.screenings, turnoverMinutes, weekStart]
+  );
+  const timelineHourMarks = useMemo(() => getTimelineHourMarks(timelineRange), [timelineRange]);
+  const timelineHeight = getTimelineHeight(timelineRange);
 
   const runSaving = async (operation: () => Promise<void>) => {
     setSaveState("saving");
@@ -1002,8 +1042,11 @@ export function ProgrammingScreen({
 
               return (
                 <div key={room.id} className="rounded-md border border-babel-line bg-babel-panel">
-                  <div className="flex items-center justify-between border-b border-babel-line px-3 py-2">
-                    <h2 className="font-medium">{room.name}</h2>
+                  <div className="grid grid-cols-[28px_1fr_28px] items-center border-b border-babel-line px-3 py-2">
+                    <div aria-hidden="true" />
+                    <h2 className="text-center text-base font-semibold tracking-wide text-white">
+                      {room.name}
+                    </h2>
                     <button
                       className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-babel-red text-white transition hover:bg-red-600"
                       onClick={() => addScreening(room)}
@@ -1013,27 +1056,69 @@ export function ProgrammingScreen({
                     </button>
                   </div>
 
-                  <div className="space-y-2 p-2">
+                  <div
+                    className="relative overflow-visible rounded-b-md bg-zinc-950/20"
+                    style={{ height: timelineHeight }}
+                  >
+                    {timelineHourMarks.map((hourMark) => (
+                      <div
+                        key={hourMark}
+                        className="pointer-events-none absolute left-0 right-0"
+                        style={{ top: getTimelineOffsetForMinutes(hourMark, timelineRange) }}
+                      >
+                        <div className="absolute left-12 right-0 top-0 z-0 border-t border-zinc-800/45" />
+                        <span className="absolute left-1 top-[-7px] z-20 w-10 rounded bg-babel-panel/95 px-1 text-right text-[10px] tabular-nums text-zinc-500 ring-1 ring-zinc-900/70">
+                          {formatTimelineTime(hourMark)}
+                        </span>
+                      </div>
+                    ))}
                     {isLoading ? (
-                      <div className="flex h-24 items-center justify-center text-zinc-500">
+                      <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
                         <Loader2 className="animate-spin" size={18} />
                       </div>
                     ) : roomScreenings.length ? (
-                      roomScreenings.map((screening) => (
-                        <ScreeningCard
-                          key={screening.id}
-                          distributors={state.distributors}
-                          movies={state.movies}
-                          screening={screening}
-                          screenings={weekScreenings}
-                          turnoverMinutes={turnoverMinutes}
-                          onChange={(patch) => updateScreening(screening, patch)}
-                          onCreateMovie={createMovieFromDraft}
-                          onDelete={() => removeScreening(screening)}
-                        />
-                      ))
+                      roomScreenings.map((screening) => {
+                        const movie =
+                          state.movies.find((item) => item.id === screening.movieId) ?? null;
+                        const nextScreening = getNextScreeningForSameRoom(
+                          screening,
+                          weekScreenings
+                        );
+                        const gapInfo = getScreeningGapInfo({
+                          movie,
+                          nextScreening,
+                          screening,
+                          turnoverMinutes
+                        });
+                        const timelineLayout = getScreeningTimelineLayout(
+                          screening,
+                          state.movies,
+                          timelineRange
+                        );
+
+                        return (
+                          <ScreeningCard
+                            key={screening.id}
+                            accentColor={
+                              movie?.id
+                                ? (movieAccentColors.get(movie.id) ?? FALLBACK_MOVIE_ACCENT_COLOR)
+                                : FALLBACK_MOVIE_ACCENT_COLOR
+                            }
+                            distributors={state.distributors}
+                            gapInfo={gapInfo}
+                            movies={state.movies}
+                            screening={screening}
+                            screenings={weekScreenings}
+                            timelineLayout={timelineLayout}
+                            turnoverMinutes={turnoverMinutes}
+                            onChange={(patch) => updateScreening(screening, patch)}
+                            onCreateMovie={createMovieFromDraft}
+                            onDelete={() => removeScreening(screening)}
+                          />
+                        );
+                      })
                     ) : (
-                      <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-700 text-sm text-zinc-500">
+                      <div className="absolute left-12 right-2 top-2 flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-700 text-sm text-zinc-500">
                         Sin sesiones
                       </div>
                     )}

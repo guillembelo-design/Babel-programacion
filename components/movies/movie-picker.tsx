@@ -53,12 +53,12 @@ export function MoviePicker({
   };
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2 rounded-md border border-zinc-600/90 bg-[#17171c] p-2 shadow-[0_18px_46px_rgba(0,0,0,0.7)] ring-1 ring-white/10">
       <input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Buscar pelicula"
-        className="h-8 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+        className="h-8 w-full rounded-md border border-zinc-600 bg-[#0f0f13] px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
       />
 
       <div className="max-h-28 space-y-1 overflow-y-auto">
@@ -67,10 +67,10 @@ export function MoviePicker({
             <button
               key={movie.id}
               className={clsx(
-                "w-full rounded border px-2 py-1.5 text-left text-xs transition",
+                "w-full rounded border px-2 py-1.5 text-left text-xs shadow-sm transition",
                 selectedMovieId === movie.id
-                  ? "border-babel-red bg-red-950/30 text-white"
-                  : "border-babel-line bg-zinc-950/30 text-zinc-300 hover:border-zinc-500 hover:text-white"
+                  ? "border-babel-red bg-red-950/70 text-white"
+                  : "border-zinc-700 bg-[#23232a] text-zinc-200 hover:border-zinc-500 hover:bg-[#2d2d35] hover:text-white"
               )}
               onClick={() => {
                 onSelect(movie.id);
@@ -82,14 +82,14 @@ export function MoviePicker({
             </button>
           ))
         ) : (
-          <div className="rounded border border-dashed border-zinc-700 px-2 py-2 text-center text-xs text-zinc-500">
+          <div className="rounded border border-dashed border-zinc-700 bg-[#101014] px-2 py-2 text-center text-xs text-zinc-500">
             {selectableMovies.length ? "Sin resultados" : "Sin peliculas activas"}
           </div>
         )}
       </div>
 
       {selectedMovie ? (
-        <div className="flex items-center justify-between rounded bg-zinc-950/30 px-2 py-1 text-[11px] text-zinc-400">
+        <div className="flex items-center justify-between rounded border border-zinc-700 bg-[#101014] px-2 py-1 text-[11px] text-zinc-400">
           <span className="truncate">{selectedMovie.title}</span>
           <button className="text-zinc-500 transition hover:text-white" onClick={() => onSelect(null)}>
             Quitar
@@ -98,12 +98,12 @@ export function MoviePicker({
       ) : null}
 
       {isCreating ? (
-        <div className="space-y-1.5 rounded-md border border-babel-line bg-zinc-950/30 p-2">
+        <div className="space-y-1.5 rounded-md border border-zinc-700 bg-[#101014] p-2">
           <input
             value={draft.title}
             onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
             placeholder="Titulo"
-            className="h-8 w-full rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
+            className="h-8 w-full rounded border border-zinc-600 bg-[#202027] px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
           />
           <input
             type="number"
@@ -115,7 +115,7 @@ export function MoviePicker({
                 durationMinutes: Number(event.target.value)
               }))
             }
-            className="h-8 w-full rounded border border-babel-line bg-babel-card px-2 text-xs text-white outline-none transition focus:border-babel-red"
+            className="h-8 w-full rounded border border-zinc-600 bg-[#202027] px-2 text-xs text-white outline-none transition focus:border-babel-red"
           />
           <DistributorInput
             compact
@@ -146,7 +146,7 @@ export function MoviePicker({
               Crear
             </button>
             <button
-              className="h-8 rounded border border-babel-line px-2 text-xs text-zinc-300 transition hover:bg-babel-card hover:text-white"
+              className="h-8 rounded border border-zinc-600 px-2 text-xs text-zinc-300 transition hover:bg-[#2d2d35] hover:text-white"
               onClick={() => setIsCreating(false)}
             >
               Cancelar
@@ -155,7 +155,7 @@ export function MoviePicker({
         </div>
       ) : (
         <button
-          className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-babel-line text-xs text-zinc-300 transition hover:bg-babel-card hover:text-white"
+          className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-zinc-600 bg-[#202027] text-xs text-zinc-200 transition hover:bg-[#2d2d35] hover:text-white"
           onClick={startCreating}
         >
           <Plus size={13} />
