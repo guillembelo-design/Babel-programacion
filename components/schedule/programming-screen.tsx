@@ -1126,6 +1126,81 @@ export function ProgrammingScreen({
     pushUndoSnapshot(previousPersistedScreenings);
   };
 
+  const copyWeekToNextWeek = async () => {
+    const nextWeekStart = shiftWeek(weekStart, 1);
+    const sourceScreenings = weekScreenings;
+    const targetScreenings = state.screenings.filter(
+      (screening) => screening.weekStart === nextWeekStart
+    );
+
+    if (!sourceScreenings.length) {
+      setSaveState("error");
+      setSaveError("La semana actual no tiene sesiones.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      targetScreenings.length
+        ? `La semana siguiente ya tiene ${targetScreenings.length} sesiones. Quieres reemplazarla por ${sourceScreenings.length} sesiones de la semana actual?`
+        : `Se copiaran ${sourceScreenings.length} sesiones a la semana del ${getWeekLabel(nextWeekStart)}.`
+    );
+
+    if (!confirmed) return;
+
+    const previousScreenings = state.screenings;
+    const previousPersistedScreenings = persistedScreeningsRef.current;
+    const copies = sourceScreenings.map((screening) => ({
+      ...screening,
+      id: crypto.randomUUID(),
+      weekStart: nextWeekStart
+    }));
+    const nextScreenings = [
+      ...state.screenings.filter((screening) => screening.weekStart !== nextWeekStart),
+      ...copies
+    ].sort(compareScreeningStartTimes);
+    const nextPersistedScreenings = [
+      ...persistedScreeningsRef.current.filter(
+        (screening) => screening.weekStart !== nextWeekStart
+      ),
+      ...copies
+    ].sort(compareScreeningStartTimes);
+
+    setState((current) => ({
+      ...current,
+      screenings: nextScreenings
+    }));
+
+    const saved = await runSaving(async () => {
+      try {
+        await Promise.all(targetScreenings.map((screening) => deleteScreening(screening.id)));
+        await Promise.all(copies.map((screening) => saveScreening(screening)));
+      } catch (error) {
+        await Promise.allSettled(copies.map((screening) => deleteScreening(screening.id)));
+        await Promise.allSettled(targetScreenings.map((screening) => saveScreening(screening)));
+        throw error;
+      }
+    });
+
+    if (!saved) {
+      const loadedState = await loadSchedule().catch(() => null);
+
+      if (loadedState) {
+        setState(loadedState);
+        rememberPersistedScreenings(loadedState.screenings);
+      } else {
+        setState((current) => ({ ...current, screenings: previousScreenings }));
+        rememberPersistedScreenings(previousPersistedScreenings);
+      }
+
+      return;
+    }
+
+    rememberPersistedScreenings(nextPersistedScreenings);
+    pushUndoSnapshot(previousPersistedScreenings);
+    setCopyNotice("Semana copiada correctamente");
+    setWeekStart(nextWeekStart);
+  };
+
   const conflictCount = weekScreenings.filter(
     (screening) =>
       getScreeningStatus(screening, weekScreenings, state.movies, turnoverMinutes) === "conflict"
@@ -1321,6 +1396,14 @@ export function ProgrammingScreen({
                   Duplicar
                 </button>
               </div>
+              <button
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void copyWeekToNextWeek()}
+                disabled={saveState === "saving"}
+              >
+                <Copy size={16} />
+                Copiar semana a la siguiente
+              </button>
               <button
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white"
                 onClick={() => window.print()}
