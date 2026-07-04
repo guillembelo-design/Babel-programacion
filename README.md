@@ -25,12 +25,14 @@ pnpm install
 cp .env.example .env.local
 ```
 
-3. Si vas a usar Supabase, rellena:
+3. Configura Supabase:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
+
+La app requiere Supabase Auth con un usuario interno para poder acceder.
 
 4. Crea las tablas en Supabase ejecutando el SQL de:
 
@@ -38,7 +40,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 supabase/schema.sql
 ```
 
-5. Arranca la aplicacion:
+5. Activa las politicas de seguridad ejecutando en Supabase SQL Editor:
+
+```bash
+supabase/rls-policies.sql
+```
+
+6. Arranca la aplicacion:
 
 ```bash
 pnpm dev
@@ -46,10 +54,9 @@ pnpm dev
 
 La pantalla principal se abre directamente en `/`.
 
-## Modo local
+## Acceso
 
-Si las variables de Supabase no estan configuradas, la V1 funciona igualmente usando `localStorage`.
-Esto permite probar la programacion, peliculas, solapes y duplicado de dias sin backend.
+Babel Programacion requiere login con Supabase Auth. Crea los usuarios del equipo desde el panel de Supabase; la app no permite registro publico.
 
 ## Modelo minimo
 

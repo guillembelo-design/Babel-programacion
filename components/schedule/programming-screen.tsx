@@ -39,6 +39,7 @@ import {
   WeekdayKey,
   WEEKDAYS
 } from "@/lib/schedule/types";
+import { getNextScreeningStartTime } from "@/lib/schedule/screenings";
 import {
   deleteScreening,
   deleteDistributor,
@@ -289,14 +290,21 @@ export function ProgrammingScreen({
       day: activeDay,
       roomId: room.id,
       movieId: selectableMovies[0]?.id ?? null,
-      startsAt: "18:00"
+      startsAt: getNextScreeningStartTime({
+        day: activeDay,
+        movies: state.movies,
+        roomId: room.id,
+        screenings: state.screenings,
+        turnoverMinutes,
+        weekStart
+      })
     };
 
     void persistScreening(screening);
   };
 
   const updateScreening = (screening: Screening, patch: Partial<Screening>) => {
-    void persistScreening({ ...screening, ...patch });
+    return persistScreening({ ...screening, ...patch });
   };
 
   const removeScreening = async (screening: Screening) => {

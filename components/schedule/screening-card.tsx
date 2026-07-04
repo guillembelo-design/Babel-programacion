@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { clsx } from "clsx";
 import {
   getScreeningEndTime,
   getScreeningStatus,
-  getTurnoverConflictForScreening
+  getTurnoverConflictForScreening,
+  isValidScreeningTime
 } from "@/lib/schedule/conflicts";
 import { Distributor, Movie, Screening } from "@/lib/schedule/types";
 import { MoviePicker } from "@/components/movies/movie-picker";
@@ -18,7 +19,7 @@ type ScreeningCardProps = {
   distributors: Distributor[];
   movies: Movie[];
   turnoverMinutes: number;
-  onChange: (patch: Partial<Screening>) => void;
+  onChange: (patch: Partial<Screening>) => Promise<boolean> | boolean | void;
   onCreateMovie: (draft: MovieDraft) => Promise<Movie | null>;
   onDelete: () => void;
 };
@@ -34,6 +35,10 @@ export function ScreeningCard({
   onDelete
 }: ScreeningCardProps) {
   const [isEditingMovie, setIsEditingMovie] = useState(!screening.movieId);
+  const [timeDraft, setTimeDraft] = useState(screening.startsAt);
+  const [timeError, setTimeError] = useState("");
+  const isCommittingTimeRef = useRef(false);
+  const skipNextBlurRef = useRef(false);
   const status = getScreeningStatus(screening, screenings, movies, turnoverMinutes);
   const turnoverConflict = getTurnoverConflictForScreening(
     screening,
@@ -50,6 +55,55 @@ export function ScreeningCard({
     }
   }, [screening.movieId]);
 
+  useEffect(() => {
+    setTimeDraft(screening.startsAt);
+    setTimeError("");
+  }, [screening.startsAt]);
+
+  const commitTimeDraft = async () => {
+    const nextTime = timeDraft.trim();
+
+    if (isCommittingTimeRef.current) return;
+
+    if (nextTime === screening.startsAt) {
+      setTimeError("");
+      return;
+    }
+
+    if (!isValidScreeningTime(nextTime)) {
+      setTimeError("Usa HH:mm");
+      return;
+    }
+
+    isCommittingTimeRef.current = true;
+    setTimeError("");
+
+    try {
+      const saved = await onChange({ startsAt: nextTime });
+
+      if (saved === false) {
+        setTimeDraft(screening.startsAt);
+      }
+    } finally {
+      isCommittingTimeRef.current = false;
+    }
+  };
+
+  const handleTimeKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void commitTimeDraft();
+      event.currentTarget.blur();
+    }
+
+    if (event.key === "Escape") {
+      skipNextBlurRef.current = true;
+      setTimeDraft(screening.startsAt);
+      setTimeError("");
+      event.currentTarget.blur();
+    }
+  };
+
   return (
     <article
       className={clsx(
@@ -65,11 +119,23 @@ export function ScreeningCard({
           inputMode="numeric"
           maxLength={5}
           placeholder="HH:mm"
-          value={screening.startsAt}
-          onChange={(event) => onChange({ startsAt: event.target.value })}
+          value={timeDraft}
+          onBlur={() => {
+            if (skipNextBlurRef.current) {
+              skipNextBlurRef.current = false;
+              return;
+            }
+
+            void commitTimeDraft();
+          }}
+          onChange={(event) => {
+            setTimeDraft(event.target.value);
+            setTimeError("");
+          }}
+          onKeyDown={handleTimeKeyDown}
           className={clsx(
             "h-8 w-[68px] rounded-md border bg-zinc-950/40 px-1 text-center text-lg font-semibold tabular-nums text-white outline-none transition",
-            status === "invalid"
+            timeError || status === "invalid"
               ? "border-red-500 focus:border-red-400"
               : "border-babel-line focus:border-babel-red"
           )}
@@ -95,8 +161,10 @@ export function ScreeningCard({
         ) : null}
       </div>
 
-      {status === "invalid" ? (
-        <p className="mt-1 text-center text-[11px] leading-none text-red-300">Usa HH:mm</p>
+      {timeError || status === "invalid" ? (
+        <p className="mt-1 text-center text-[11px] leading-none text-red-300">
+          {timeError || "Usa HH:mm"}
+        </p>
       ) : null}
 
       {turnoverConflict ? (

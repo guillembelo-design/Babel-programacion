@@ -20,7 +20,7 @@ export function timeToMinutes(time: string) {
   return hours * 60 + minutes;
 }
 
-function minutesToTime(totalMinutes: number) {
+export function formatMinutesAsTime(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60) % 24;
   const minutes = totalMinutes % 60;
 
@@ -74,7 +74,7 @@ export function getScreeningEndTime(screening: Screening, movies: Movie[]) {
   const startsAt = timeToMinutes(screening.startsAt);
   if (startsAt === null) return null;
 
-  return minutesToTime(startsAt + movie.durationMinutes);
+  return formatMinutesAsTime(startsAt + movie.durationMinutes);
 }
 
 export function getTurnoverConflictForScreening(
@@ -135,8 +135,8 @@ export function getTurnoverConflicts(
         conflicts.push({
           previousScreeningId: previous.screening.id,
           currentScreeningId: current.screening.id,
-          previousEndsAt: minutesToTime(previous.endMinutes),
-          minimumStartAt: minutesToTime(minimumStartMinutes),
+          previousEndsAt: formatMinutesAsTime(previous.endMinutes),
+          minimumStartAt: formatMinutesAsTime(minimumStartMinutes),
           actualGapMinutes: current.startMinutes - previous.endMinutes,
           turnoverMinutes
         });
