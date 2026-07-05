@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Film,
   Loader2,
   LogOut,
   Plus,
@@ -54,15 +55,19 @@ import {
   getTimelineRangeForDay
 } from "@/lib/schedule/timeline";
 import {
+  addWeeklyMovie,
   deleteScreening,
   deleteDistributor,
   detachAndDeleteDistributor,
   findOrCreateDistributor,
   loadScheduleForWeek,
   loadScreeningsForWeek,
+  loadWeeklyMoviesForWeek,
   mergeDistributors,
   normalizeDistributorName,
   removeMovie,
+  removeWeeklyMovie,
+  replaceWeeklyMoviesForWeek,
   saveMovie,
   saveRooms,
   saveScreening,
@@ -87,6 +92,7 @@ import {
 } from "./use-screening-drag-and-drop";
 import { useUndoableScreenings } from "./use-undoable-screenings";
 import { WeeklyPrintView } from "./weekly-print-view";
+import { WeeklyMoviesPanel } from "./weekly-movies-panel";
 
 const MAIN_SECTIONS = [
   { key: "schedule", label: "Programacion salas" },
@@ -128,6 +134,8 @@ export function ProgrammingScreen({
   const [importDraft, setImportDraft] = useState<MovieDraft | null>(null);
   const [importSourceUrl, setImportSourceUrl] = useState("");
   const [activeSection, setActiveSection] = useState<MainSection>("schedule");
+  const [weeklyMovieIds, setWeeklyMovieIds] = useState<string[]>([]);
+  const [isWeeklyMoviesPanelOpen, setIsWeeklyMoviesPanelOpen] = useState(true);
   const [selectedScreeningId, setSelectedScreeningId] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState("");
   const [dragNotice, setDragNotice] = useState("");
@@ -153,13 +161,15 @@ export function ProgrammingScreen({
 
     setIsLoading(true);
     setState((current) => ({ ...current, screenings: [] }));
+    setWeeklyMovieIds([]);
     rememberPersistedScreenings([]);
 
-    loadScheduleForWeek(weekStart)
-      .then((loadedState) => {
+    Promise.all([loadScheduleForWeek(weekStart), loadWeeklyMoviesForWeek(weekStart)])
+      .then(([loadedState, loadedWeeklyMovieIds]) => {
         if (!mounted) return;
         rememberPersistedScreenings(loadedState.screenings);
         setState(loadedState);
+        setWeeklyMovieIds(loadedWeeklyMovieIds);
         setIsLoading(false);
         if (!loadedState.rooms.length) {
           void saveRooms(INITIAL_ROOMS);
@@ -290,6 +300,32 @@ export function ProgrammingScreen({
       setState,
       weekStart
     });
+
+  const addMovieToWeek = async (movieId: string) => {
+    if (weeklyMovieIds.includes(movieId)) return;
+
+    const previousWeeklyMovieIds = weeklyMovieIds;
+    const nextWeeklyMovieIds = [...weeklyMovieIds, movieId];
+
+    setWeeklyMovieIds(nextWeeklyMovieIds);
+    const saved = await runSaving(() => addWeeklyMovie(weekStart, movieId));
+
+    if (!saved) {
+      setWeeklyMovieIds(previousWeeklyMovieIds);
+    }
+  };
+
+  const removeMovieFromWeek = async (movieId: string) => {
+    const previousWeeklyMovieIds = weeklyMovieIds;
+    const nextWeeklyMovieIds = weeklyMovieIds.filter((id) => id !== movieId);
+
+    setWeeklyMovieIds(nextWeeklyMovieIds);
+    const saved = await runSaving(() => removeWeeklyMovie(weekStart, movieId));
+
+    if (!saved) {
+      setWeeklyMovieIds(previousWeeklyMovieIds);
+    }
+  };
 
   const showDragNotice = useCallback((message: string) => {
     setDragNotice(message);
@@ -1135,31 +1171,39 @@ export function ProgrammingScreen({
   const copyWeekToNextWeek = async () => {
     const nextWeekStart = shiftWeek(weekStart, 1);
     const sourceScreenings = weekScreenings;
+    const sourceWeeklyMovieIds = weeklyMovieIds;
 
-    if (!sourceScreenings.length) {
+    if (!sourceScreenings.length && !sourceWeeklyMovieIds.length) {
       setSaveState("error");
-      setSaveError("La semana actual no tiene sesiones.");
+      setSaveError("La semana actual no tiene sesiones ni peliculas en el listado.");
       return;
     }
 
-    const targetScreenings = await loadScreeningsForWeek(nextWeekStart).catch((error) => {
+    const targetData = await Promise.all([
+      loadScreeningsForWeek(nextWeekStart),
+      loadWeeklyMoviesForWeek(nextWeekStart)
+    ]).catch((error) => {
       setSaveState("error");
       setSaveError(getErrorMessage(error));
       return null;
     });
 
-    if (!targetScreenings) return;
+    if (!targetData) return;
+
+    const [targetScreenings, targetWeeklyMovieIds] = targetData;
+    const hasTargetContent = Boolean(targetScreenings.length || targetWeeklyMovieIds.length);
 
     const confirmed = window.confirm(
-      targetScreenings.length
-        ? `La semana siguiente ya tiene ${targetScreenings.length} sesiones. Quieres reemplazarla por ${sourceScreenings.length} sesiones de la semana actual?`
-        : `Se copiaran ${sourceScreenings.length} sesiones a la semana del ${getWeekLabel(nextWeekStart)}.`
+      hasTargetContent
+        ? `La semana siguiente ya tiene ${targetScreenings.length} sesiones y ${targetWeeklyMovieIds.length} peliculas en el listado. Quieres reemplazarla por ${sourceScreenings.length} sesiones y ${sourceWeeklyMovieIds.length} peliculas de la semana actual?`
+        : `Se copiaran ${sourceScreenings.length} sesiones y ${sourceWeeklyMovieIds.length} peliculas a la semana del ${getWeekLabel(nextWeekStart)}.`
     );
 
     if (!confirmed) return;
 
     const previousScreenings = state.screenings;
     const previousPersistedScreenings = persistedScreeningsRef.current;
+    const previousWeeklyMovieIds = weeklyMovieIds;
     const copies = sourceScreenings.map((screening) => ({
       ...screening,
       id: crypto.randomUUID(),
@@ -1169,21 +1213,29 @@ export function ProgrammingScreen({
       try {
         await Promise.all(targetScreenings.map((screening) => deleteScreening(screening.id)));
         await Promise.all(copies.map((screening) => saveScreening(screening)));
+        await replaceWeeklyMoviesForWeek(nextWeekStart, sourceWeeklyMovieIds);
       } catch (error) {
         await Promise.allSettled(copies.map((screening) => deleteScreening(screening.id)));
         await Promise.allSettled(targetScreenings.map((screening) => saveScreening(screening)));
+        await replaceWeeklyMoviesForWeek(nextWeekStart, targetWeeklyMovieIds).catch(() => undefined);
         throw error;
       }
     });
 
     if (!saved) {
-      const loadedState = await loadScheduleForWeek(weekStart).catch(() => null);
+      const loadedData = await Promise.all([
+        loadScheduleForWeek(weekStart),
+        loadWeeklyMoviesForWeek(weekStart)
+      ]).catch(() => null);
 
-      if (loadedState) {
+      if (loadedData) {
+        const [loadedState, loadedWeeklyMovieIds] = loadedData;
         setState(loadedState);
+        setWeeklyMovieIds(loadedWeeklyMovieIds);
         rememberPersistedScreenings(loadedState.screenings);
       } else {
         setState((current) => ({ ...current, screenings: previousScreenings }));
+        setWeeklyMovieIds(previousWeeklyMovieIds);
         rememberPersistedScreenings(previousPersistedScreenings);
       }
 
@@ -1398,6 +1450,18 @@ export function ProgrammingScreen({
                 Copiar semana a la siguiente
               </button>
               <button
+                className={clsx(
+                  "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
+                  isWeeklyMoviesPanelOpen
+                    ? "border-babel-red bg-red-950/40 text-white"
+                    : "border-babel-line bg-babel-panel text-zinc-200 hover:border-zinc-500 hover:bg-babel-card hover:text-white"
+                )}
+                onClick={() => setIsWeeklyMoviesPanelOpen((current) => !current)}
+              >
+                <Film size={16} />
+                Películas de la semana
+              </button>
+              <button
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white"
                 onClick={() => window.print()}
               >
@@ -1424,156 +1488,185 @@ export function ProgrammingScreen({
             </span>
           </div>
 
-          <div className="grid min-w-[1060px] grid-cols-5 gap-2 overflow-x-auto pb-3">
-            {state.rooms.map((room) => {
-              const roomScreenings = weekScreenings
-                .filter((screening) => screening.day === activeDay && screening.roomId === room.id)
-                .sort(compareScreeningStartTimes);
-              const roomDropTarget =
-                placementState?.dropTarget?.roomId === room.id ? placementState.dropTarget : null;
-              const replacementScreening = roomDropTarget?.targetScreeningId
-                ? state.screenings.find(
-                    (screening) => screening.id === roomDropTarget.targetScreeningId
-                  )
-                : null;
-              const replacementLayout = replacementScreening
-                ? getScreeningTimelineLayout(replacementScreening, state.movies, timelineRange)
-                : null;
-              const dropPreviewTop = roomDropTarget
-                ? (replacementLayout?.top ??
-                  getTimelineOffsetForMinutes(roomDropTarget.startMinutes, timelineRange))
-                : 0;
-              const dropPreviewHeight = roomDropTarget
-                ? Math.max(
-                    34,
-                    replacementLayout?.height ??
-                      getTimelineOffsetForMinutes(
-                        roomDropTarget.startMinutes + (placementMovie?.durationMinutes ?? 60),
-                        timelineRange
-                      ) -
-                        getTimelineOffsetForMinutes(roomDropTarget.startMinutes, timelineRange)
-                  )
-                : 0;
+          <div
+            className={clsx(
+              "grid gap-3",
+              isWeeklyMoviesPanelOpen ? "xl:grid-cols-[minmax(0,1fr)_320px]" : "grid-cols-1"
+            )}
+          >
+            <div className="min-w-0 overflow-x-auto pb-3">
+              <div className="grid min-w-[1060px] grid-cols-5 gap-2">
+                {state.rooms.map((room) => {
+                  const roomScreenings = weekScreenings
+                    .filter(
+                      (screening) => screening.day === activeDay && screening.roomId === room.id
+                    )
+                    .sort(compareScreeningStartTimes);
+                  const roomDropTarget =
+                    placementState?.dropTarget?.roomId === room.id
+                      ? placementState.dropTarget
+                      : null;
+                  const replacementScreening = roomDropTarget?.targetScreeningId
+                    ? state.screenings.find(
+                        (screening) => screening.id === roomDropTarget.targetScreeningId
+                      )
+                    : null;
+                  const replacementLayout = replacementScreening
+                    ? getScreeningTimelineLayout(replacementScreening, state.movies, timelineRange)
+                    : null;
+                  const dropPreviewTop = roomDropTarget
+                    ? (replacementLayout?.top ??
+                      getTimelineOffsetForMinutes(roomDropTarget.startMinutes, timelineRange))
+                    : 0;
+                  const dropPreviewHeight = roomDropTarget
+                    ? Math.max(
+                        34,
+                        replacementLayout?.height ??
+                          getTimelineOffsetForMinutes(
+                            roomDropTarget.startMinutes + (placementMovie?.durationMinutes ?? 60),
+                            timelineRange
+                          ) -
+                            getTimelineOffsetForMinutes(roomDropTarget.startMinutes, timelineRange)
+                      )
+                    : 0;
 
-              return (
-                <div key={room.id} className="rounded-md border border-babel-line bg-babel-panel">
-                  <div className="grid grid-cols-[28px_1fr_28px] items-center border-b border-babel-line px-3 py-2">
-                    <div aria-hidden="true" />
-                    <h2 className="text-center text-base font-semibold tracking-wide text-white">
-                      {room.name}
-                    </h2>
-                    <button
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-babel-red text-white transition hover:bg-red-600"
-                      onClick={() => addScreening(room)}
-                      title={`Anadir sesion en ${room.name}`}
-                    >
-                      <Plus size={16} />
-                    </button>
-                  </div>
-
-                  <div
-                    data-timeline-room-id={room.id}
-                    className="relative overflow-visible rounded-b-md bg-zinc-950/20"
-                    style={{ height: timelineHeight }}
-                    onClick={() => {
-                      if (consumeDragClickSuppression()) return;
-                      setSelectedScreeningId(null);
-                    }}
-                  >
-                    {timelineHourMarks.map((hourMark) => (
-                      <div
-                        key={hourMark}
-                        className="pointer-events-none absolute left-0 right-0"
-                        style={{ top: getTimelineOffsetForMinutes(hourMark, timelineRange) }}
-                      >
-                        <div className="absolute left-12 right-0 top-0 z-0 border-t border-zinc-800/45" />
-                        <span className="absolute left-1 top-[-7px] z-20 w-10 rounded bg-babel-panel/95 px-1 text-right text-[10px] tabular-nums text-zinc-500 ring-1 ring-zinc-900/70">
-                          {formatTimelineTime(hourMark)}
-                        </span>
+                  return (
+                    <div key={room.id} className="rounded-md border border-babel-line bg-babel-panel">
+                      <div className="grid grid-cols-[28px_1fr_28px] items-center border-b border-babel-line px-3 py-2">
+                        <div aria-hidden="true" />
+                        <h2 className="text-center text-base font-semibold tracking-wide text-white">
+                          {room.name}
+                        </h2>
+                        <button
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-babel-red text-white transition hover:bg-red-600"
+                          onClick={() => addScreening(room)}
+                          title={`Anadir sesion en ${room.name}`}
+                        >
+                          <Plus size={16} />
+                        </button>
                       </div>
-                    ))}
-                    {roomDropTarget ? (
+
                       <div
-                        className={clsx(
-                          "pointer-events-none absolute left-12 right-2 z-20 flex items-start rounded-md border border-dashed px-2 py-1 text-[11px] font-semibold shadow-lg",
-                          roomDropTarget.status === "free" &&
-                            "border-green-300/70 bg-green-500/15 text-green-100",
-                          roomDropTarget.status === "replace" &&
-                            "border-amber-300/80 bg-amber-500/20 text-amber-100",
-                          roomDropTarget.status === "invalid" &&
-                            "border-red-300/80 bg-red-500/20 text-red-100"
-                        )}
-                        style={{
-                          height: dropPreviewHeight,
-                          top: dropPreviewTop
+                        data-timeline-room-id={room.id}
+                        className="relative overflow-visible rounded-b-md bg-zinc-950/20"
+                        style={{ height: timelineHeight }}
+                        onClick={() => {
+                          if (consumeDragClickSuppression()) return;
+                          setSelectedScreeningId(null);
                         }}
                       >
-                        {roomDropTarget.status === "replace"
-                          ? "Reemplazar"
-                          : roomDropTarget.status === "invalid"
-                            ? "No cabe ahi"
-                            : roomDropTarget.startsAt}
-                      </div>
-                    ) : null}
-                    {isLoading ? (
-                      <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
-                        <Loader2 className="animate-spin" size={18} />
-                      </div>
-                    ) : roomScreenings.length ? (
-                      roomScreenings.map((screening) => {
-                        const movie =
-                          state.movies.find((item) => item.id === screening.movieId) ?? null;
-                        const nextScreening = getNextScreeningForSameRoom(
-                          screening,
-                          weekScreenings
-                        );
-                        const gapInfo = getScreeningGapInfo({
-                          movie,
-                          nextScreening,
-                          screening,
-                          turnoverMinutes
-                        });
-                        const timelineLayout = getScreeningTimelineLayout(
-                          screening,
-                          state.movies,
-                          timelineRange
-                        );
+                        {timelineHourMarks.map((hourMark) => (
+                          <div
+                            key={hourMark}
+                            className="pointer-events-none absolute left-0 right-0"
+                            style={{ top: getTimelineOffsetForMinutes(hourMark, timelineRange) }}
+                          >
+                            <div className="absolute left-12 right-0 top-0 z-0 border-t border-zinc-800/45" />
+                            <span className="absolute left-1 top-[-7px] z-20 w-10 rounded bg-babel-panel/95 px-1 text-right text-[10px] tabular-nums text-zinc-500 ring-1 ring-zinc-900/70">
+                              {formatTimelineTime(hourMark)}
+                            </span>
+                          </div>
+                        ))}
+                        {roomDropTarget ? (
+                          <div
+                            className={clsx(
+                              "pointer-events-none absolute left-12 right-2 z-20 flex items-start rounded-md border border-dashed px-2 py-1 text-[11px] font-semibold shadow-lg",
+                              roomDropTarget.status === "free" &&
+                                "border-green-300/70 bg-green-500/15 text-green-100",
+                              roomDropTarget.status === "replace" &&
+                                "border-amber-300/80 bg-amber-500/20 text-amber-100",
+                              roomDropTarget.status === "invalid" &&
+                                "border-red-300/80 bg-red-500/20 text-red-100"
+                            )}
+                            style={{
+                              height: dropPreviewHeight,
+                              top: dropPreviewTop
+                            }}
+                          >
+                            {roomDropTarget.status === "replace"
+                              ? "Reemplazar"
+                              : roomDropTarget.status === "invalid"
+                                ? "No cabe ahi"
+                                : roomDropTarget.startsAt}
+                          </div>
+                        ) : null}
+                        {isLoading ? (
+                          <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
+                            <Loader2 className="animate-spin" size={18} />
+                          </div>
+                        ) : roomScreenings.length ? (
+                          roomScreenings.map((screening) => {
+                            const movie =
+                              state.movies.find((item) => item.id === screening.movieId) ?? null;
+                            const nextScreening = getNextScreeningForSameRoom(
+                              screening,
+                              weekScreenings
+                            );
+                            const gapInfo = getScreeningGapInfo({
+                              movie,
+                              nextScreening,
+                              screening,
+                              turnoverMinutes
+                            });
+                            const timelineLayout = getScreeningTimelineLayout(
+                              screening,
+                              state.movies,
+                              timelineRange
+                            );
 
-                        return (
-                          <ScreeningCard
-                            key={screening.id}
-                            accentColor={
-                              movie?.id
-                                ? (movieAccentColors.get(movie.id) ?? FALLBACK_MOVIE_ACCENT_COLOR)
-                                : FALLBACK_MOVIE_ACCENT_COLOR
-                            }
-                            distributors={state.distributors}
-                            gapInfo={gapInfo}
-                            isDragging={dragState?.screeningId === screening.id}
-                            isSelected={selectedScreeningId === screening.id}
-                            movies={state.movies}
-                            screening={screening}
-                            screenings={weekScreenings}
-                            timelineLayout={timelineLayout}
-                            turnoverMinutes={turnoverMinutes}
-                            onChange={(patch) => updateScreening(screening, patch)}
-                            onCreateMovie={createMovieFromDraft}
-                            onDelete={() => removeScreening(screening)}
-                            onDragPointerDown={(event) => startScreeningDrag(screening, event)}
-                            onSelect={() => setSelectedScreeningId(screening.id)}
-                            shouldIgnoreSelectionClick={consumeDragClickSuppression}
-                          />
-                        );
-                      })
-                    ) : (
-                      <div className="absolute left-12 right-2 top-2 flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-700 text-sm text-zinc-500">
-                        Sin sesiones
+                            return (
+                              <ScreeningCard
+                                key={screening.id}
+                                accentColor={
+                                  movie?.id
+                                    ? (movieAccentColors.get(movie.id) ??
+                                      FALLBACK_MOVIE_ACCENT_COLOR)
+                                    : FALLBACK_MOVIE_ACCENT_COLOR
+                                }
+                                distributors={state.distributors}
+                                gapInfo={gapInfo}
+                                isDragging={dragState?.screeningId === screening.id}
+                                isSelected={selectedScreeningId === screening.id}
+                                movies={state.movies}
+                                screening={screening}
+                                screenings={weekScreenings}
+                                timelineLayout={timelineLayout}
+                                turnoverMinutes={turnoverMinutes}
+                                onChange={(patch) => updateScreening(screening, patch)}
+                                onCreateMovie={createMovieFromDraft}
+                                onDelete={() => removeScreening(screening)}
+                                onDragPointerDown={(event) => startScreeningDrag(screening, event)}
+                                onSelect={() => setSelectedScreeningId(screening.id)}
+                                shouldIgnoreSelectionClick={consumeDragClickSuppression}
+                              />
+                            );
+                          })
+                        ) : (
+                          <div className="absolute left-12 right-2 top-2 flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-700 text-sm text-zinc-500">
+                            Sin sesiones
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {isWeeklyMoviesPanelOpen ? (
+              <div className="min-w-0 xl:sticky xl:top-24 xl:self-start">
+                <WeeklyMoviesPanel
+                  isSaving={saveState === "saving"}
+                  movies={state.movies}
+                  screenings={weekScreenings}
+                  weekStart={weekStart}
+                  weeklyMovieIds={weeklyMovieIds}
+                  onAddMovie={(movieId) => void addMovieToWeek(movieId)}
+                  onClose={() => setIsWeeklyMoviesPanelOpen(false)}
+                  onRemoveMovie={(movieId) => void removeMovieFromWeek(movieId)}
+                />
+              </div>
+            ) : null}
           </div>
         </section>
         ) : null}

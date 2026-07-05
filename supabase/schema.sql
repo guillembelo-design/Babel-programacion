@@ -53,6 +53,20 @@ create table if not exists public.screenings (
 create index if not exists screenings_week_day_room_idx
   on public.screenings (week_start, day, room_id, starts_at);
 
+create table if not exists public.weekly_movies (
+  id uuid primary key default gen_random_uuid(),
+  week_start date not null,
+  movie_id uuid not null references public.movies(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (week_start, movie_id)
+);
+
+create index if not exists weekly_movies_week_start_idx
+  on public.weekly_movies (week_start);
+
+create index if not exists weekly_movies_movie_id_idx
+  on public.weekly_movies (movie_id);
+
 insert into public.rooms (id, name, position)
 values
   ('room-1', 'Sala 1', 1),

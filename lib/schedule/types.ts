@@ -28,6 +28,12 @@ export type Screening = {
   startsAt: string;
 };
 
+export type WeeklyMovie = {
+  id: string;
+  weekStart: string;
+  movieId: string;
+};
+
 export type WeekdayKey =
   | "friday"
   | "saturday"

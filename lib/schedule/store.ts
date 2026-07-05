@@ -9,10 +9,12 @@ import {
   Movie,
   Room,
   ScheduleState,
-  Screening
+  Screening,
+  WeeklyMovie
 } from "./types";
 
 const STORAGE_KEY = "babel-programacion-v1";
+const WEEKLY_MOVIES_STORAGE_KEY = "babel-programacion-weekly-movies-v1";
 
 type DatabaseMovie = {
   id: string;
@@ -38,6 +40,12 @@ type DatabaseScreening = {
   starts_at: string;
 };
 
+type DatabaseWeeklyMovie = {
+  id: string;
+  week_start: string;
+  movie_id: string;
+};
+
 const mapMovieFromDatabase = (movie: DatabaseMovie): Movie => ({
   id: movie.id,
   title: movie.title,
@@ -60,6 +68,12 @@ const mapScreeningFromDatabase = (screening: DatabaseScreening): Screening => ({
   roomId: screening.room_id,
   movieId: screening.movie_id,
   startsAt: screening.starts_at.slice(0, 5)
+});
+
+const mapWeeklyMovieFromDatabase = (weeklyMovie: DatabaseWeeklyMovie): WeeklyMovie => ({
+  id: weeklyMovie.id,
+  weekStart: weeklyMovie.week_start,
+  movieId: weeklyMovie.movie_id
 });
 
 export async function loadScheduleForWeek(weekStart: string): Promise<ScheduleState> {
@@ -118,6 +132,90 @@ export async function loadScreeningsForWeek(weekStart: string) {
   assertSupabaseResult(error, "No se pudieron cargar las sesiones");
 
   return data?.length ? (data as DatabaseScreening[]).map(mapScreeningFromDatabase) : [];
+}
+
+export async function loadWeeklyMoviesForWeek(weekStart: string) {
+  if (!supabase) {
+    return loadLocalWeeklyMovies()
+      .filter((weeklyMovie) => weeklyMovie.weekStart === weekStart)
+      .map((weeklyMovie) => weeklyMovie.movieId);
+  }
+
+  const { data, error } = await supabase
+    .from("weekly_movies")
+    .select("id,week_start,movie_id")
+    .eq("week_start", weekStart)
+    .order("created_at");
+
+  assertSupabaseResult(error, "No se pudieron cargar las peliculas de la semana");
+
+  return data?.length
+    ? (data as DatabaseWeeklyMovie[]).map(mapWeeklyMovieFromDatabase).map((item) => item.movieId)
+    : [];
+}
+
+export async function addWeeklyMovie(weekStart: string, movieId: string) {
+  if (!supabase) {
+    addLocalWeeklyMovie(weekStart, movieId);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("weekly_movies")
+    .upsert(
+      {
+        week_start: weekStart,
+        movie_id: movieId
+      },
+      { onConflict: "week_start,movie_id", ignoreDuplicates: true }
+    );
+
+  assertSupabaseResult(error, "No se pudo anadir la pelicula a la semana");
+}
+
+export async function removeWeeklyMovie(weekStart: string, movieId: string) {
+  if (!supabase) {
+    removeLocalWeeklyMovie(weekStart, movieId);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("weekly_movies")
+    .delete()
+    .eq("week_start", weekStart)
+    .eq("movie_id", movieId);
+
+  assertSupabaseResult(error, "No se pudo quitar la pelicula de la semana");
+}
+
+export async function replaceWeeklyMoviesForWeek(weekStart: string, movieIds: string[]) {
+  const uniqueMovieIds = Array.from(new Set(movieIds));
+
+  if (!supabase) {
+    replaceLocalWeeklyMoviesForWeek(weekStart, uniqueMovieIds);
+    return;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("weekly_movies")
+    .delete()
+    .eq("week_start", weekStart);
+
+  assertSupabaseResult(deleteError, "No se pudo sustituir el listado de peliculas");
+
+  if (!uniqueMovieIds.length) {
+    return;
+  }
+
+  const { error: insertError } = await supabase.from("weekly_movies").upsert(
+    uniqueMovieIds.map((movieId) => ({
+      week_start: weekStart,
+      movie_id: movieId
+    })),
+    { onConflict: "week_start,movie_id", ignoreDuplicates: true }
+  );
+
+  assertSupabaseResult(insertError, "No se pudo guardar el listado de peliculas");
 }
 
 export async function saveRooms(rooms: Room[]) {
@@ -579,6 +677,64 @@ function deleteLocalScreening(screeningId: string) {
     ...current,
     screenings: current.screenings.filter((item) => item.id !== screeningId)
   });
+}
+
+function loadLocalWeeklyMovies(): WeeklyMovie[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.localStorage.getItem(WEEKLY_MOVIES_STORAGE_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as WeeklyMovie[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistLocalWeeklyMovies(weeklyMovies: WeeklyMovie[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(WEEKLY_MOVIES_STORAGE_KEY, JSON.stringify(weeklyMovies));
+}
+
+function addLocalWeeklyMovie(weekStart: string, movieId: string) {
+  const current = loadLocalWeeklyMovies();
+  const exists = current.some(
+    (weeklyMovie) => weeklyMovie.weekStart === weekStart && weeklyMovie.movieId === movieId
+  );
+
+  if (exists) return;
+
+  persistLocalWeeklyMovies([
+    ...current,
+    {
+      id: crypto.randomUUID(),
+      weekStart,
+      movieId
+    }
+  ]);
+}
+
+function removeLocalWeeklyMovie(weekStart: string, movieId: string) {
+  persistLocalWeeklyMovies(
+    loadLocalWeeklyMovies().filter(
+      (weeklyMovie) => weeklyMovie.weekStart !== weekStart || weeklyMovie.movieId !== movieId
+    )
+  );
+}
+
+function replaceLocalWeeklyMoviesForWeek(weekStart: string, movieIds: string[]) {
+  persistLocalWeeklyMovies([
+    ...loadLocalWeeklyMovies().filter((weeklyMovie) => weeklyMovie.weekStart !== weekStart),
+    ...movieIds.map((movieId) => ({
+      id: crypto.randomUUID(),
+      weekStart,
+      movieId
+    }))
+  ]);
 }
 
 function assertSupabaseResult(error: { message?: string } | null, fallbackMessage: string) {
