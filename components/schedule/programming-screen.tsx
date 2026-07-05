@@ -58,7 +58,8 @@ import {
   deleteDistributor,
   detachAndDeleteDistributor,
   findOrCreateDistributor,
-  loadSchedule,
+  loadScheduleForWeek,
+  loadScreeningsForWeek,
   mergeDistributors,
   normalizeDistributorName,
   removeMovie,
@@ -150,7 +151,11 @@ export function ProgrammingScreen({
   useEffect(() => {
     let mounted = true;
 
-    loadSchedule()
+    setIsLoading(true);
+    setState((current) => ({ ...current, screenings: [] }));
+    rememberPersistedScreenings([]);
+
+    loadScheduleForWeek(weekStart)
       .then((loadedState) => {
         if (!mounted) return;
         rememberPersistedScreenings(loadedState.screenings);
@@ -170,7 +175,7 @@ export function ProgrammingScreen({
     return () => {
       mounted = false;
     };
-  }, [rememberPersistedScreenings]);
+  }, [rememberPersistedScreenings, weekStart]);
 
   useEffect(() => {
     setDuplicateSource(activeDay);
@@ -282,7 +287,8 @@ export function ProgrammingScreen({
       runSaving,
       saveState,
       screenings: state.screenings,
-      setState
+      setState,
+      weekStart
     });
 
   const showDragNotice = useCallback((message: string) => {
@@ -868,7 +874,7 @@ export function ProgrammingScreen({
 
   const reloadScheduleAfterDistributorError = async () => {
     try {
-      const loadedState = await loadSchedule();
+      const loadedState = await loadScheduleForWeek(weekStart);
       rememberPersistedScreenings(loadedState.screenings);
       setState(loadedState);
     } catch {
@@ -1129,15 +1135,20 @@ export function ProgrammingScreen({
   const copyWeekToNextWeek = async () => {
     const nextWeekStart = shiftWeek(weekStart, 1);
     const sourceScreenings = weekScreenings;
-    const targetScreenings = state.screenings.filter(
-      (screening) => screening.weekStart === nextWeekStart
-    );
 
     if (!sourceScreenings.length) {
       setSaveState("error");
       setSaveError("La semana actual no tiene sesiones.");
       return;
     }
+
+    const targetScreenings = await loadScreeningsForWeek(nextWeekStart).catch((error) => {
+      setSaveState("error");
+      setSaveError(getErrorMessage(error));
+      return null;
+    });
+
+    if (!targetScreenings) return;
 
     const confirmed = window.confirm(
       targetScreenings.length
@@ -1154,22 +1165,6 @@ export function ProgrammingScreen({
       id: crypto.randomUUID(),
       weekStart: nextWeekStart
     }));
-    const nextScreenings = [
-      ...state.screenings.filter((screening) => screening.weekStart !== nextWeekStart),
-      ...copies
-    ].sort(compareScreeningStartTimes);
-    const nextPersistedScreenings = [
-      ...persistedScreeningsRef.current.filter(
-        (screening) => screening.weekStart !== nextWeekStart
-      ),
-      ...copies
-    ].sort(compareScreeningStartTimes);
-
-    setState((current) => ({
-      ...current,
-      screenings: nextScreenings
-    }));
-
     const saved = await runSaving(async () => {
       try {
         await Promise.all(targetScreenings.map((screening) => deleteScreening(screening.id)));
@@ -1182,7 +1177,7 @@ export function ProgrammingScreen({
     });
 
     if (!saved) {
-      const loadedState = await loadSchedule().catch(() => null);
+      const loadedState = await loadScheduleForWeek(weekStart).catch(() => null);
 
       if (loadedState) {
         setState(loadedState);
@@ -1195,8 +1190,6 @@ export function ProgrammingScreen({
       return;
     }
 
-    rememberPersistedScreenings(nextPersistedScreenings);
-    pushUndoSnapshot(previousPersistedScreenings);
     setCopyNotice("Semana copiada correctamente");
     setWeekStart(nextWeekStart);
   };

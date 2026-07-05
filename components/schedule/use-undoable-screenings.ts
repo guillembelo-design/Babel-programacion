@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { compareScreeningStartTimes } from "@/lib/schedule/conflicts";
 import { ScheduleState, Screening } from "@/lib/schedule/types";
-import { deleteScreening, loadSchedule, saveScreening } from "@/lib/schedule/store";
+import { deleteScreening, loadScheduleForWeek, saveScreening } from "@/lib/schedule/store";
 import { SaveState } from "./status-badge";
 
 const UNDO_STACK_LIMIT = 10;
@@ -16,6 +16,7 @@ type UseUndoableScreeningsParams = {
   saveState: SaveState;
   screenings: Screening[];
   setState: Dispatch<SetStateAction<ScheduleState>>;
+  weekStart: string;
 };
 
 export function useUndoableScreenings({
@@ -24,7 +25,8 @@ export function useUndoableScreenings({
   runSaving,
   saveState,
   screenings,
-  setState
+  setState,
+  weekStart
 }: UseUndoableScreeningsParams) {
   const [undoNotice, setUndoNotice] = useState("");
   const [undoStack, setUndoStack] = useState<Screening[][]>([]);
@@ -68,7 +70,7 @@ export function useUndoableScreenings({
       });
 
       if (!saved) {
-        const loadedState = await loadSchedule().catch(() => null);
+        const loadedState = await loadScheduleForWeek(weekStart).catch(() => null);
 
         if (loadedState) {
           setState(loadedState);
@@ -90,7 +92,8 @@ export function useUndoableScreenings({
       rememberPersistedScreenings,
       runSaving,
       screenings,
-      setState
+      setState,
+      weekStart
     ]
   );
 
@@ -117,6 +120,11 @@ export function useUndoableScreenings({
     const timeoutId = window.setTimeout(() => setUndoNotice(""), 2200);
     return () => window.clearTimeout(timeoutId);
   }, [undoNotice]);
+
+  useEffect(() => {
+    setUndoStack([]);
+    setUndoNotice("");
+  }, [weekStart]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

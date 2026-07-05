@@ -62,9 +62,13 @@ const mapScreeningFromDatabase = (screening: DatabaseScreening): Screening => ({
   startsAt: screening.starts_at.slice(0, 5)
 });
 
-export async function loadSchedule(): Promise<ScheduleState> {
+export async function loadScheduleForWeek(weekStart: string): Promise<ScheduleState> {
   if (!supabase) {
-    return loadLocalSchedule();
+    const localSchedule = loadLocalSchedule();
+    return {
+      ...localSchedule,
+      screenings: localSchedule.screenings.filter((screening) => screening.weekStart === weekStart)
+    };
   }
 
   const [roomsResponse, moviesResponse, distributorsResponse, screeningsResponse] = await Promise.all([
@@ -77,6 +81,7 @@ export async function loadSchedule(): Promise<ScheduleState> {
     supabase
       .from("screenings")
       .select("id,week_start,day,room_id,movie_id,starts_at")
+      .eq("week_start", weekStart)
       .order("starts_at")
   ]);
 
@@ -97,6 +102,22 @@ export async function loadSchedule(): Promise<ScheduleState> {
       ? (screeningsResponse.data as DatabaseScreening[]).map(mapScreeningFromDatabase)
       : []
   };
+}
+
+export async function loadScreeningsForWeek(weekStart: string) {
+  if (!supabase) {
+    return loadLocalSchedule().screenings.filter((screening) => screening.weekStart === weekStart);
+  }
+
+  const { data, error } = await supabase
+    .from("screenings")
+    .select("id,week_start,day,room_id,movie_id,starts_at")
+    .eq("week_start", weekStart)
+    .order("starts_at");
+
+  assertSupabaseResult(error, "No se pudieron cargar las sesiones");
+
+  return data?.length ? (data as DatabaseScreening[]).map(mapScreeningFromDatabase) : [];
 }
 
 export async function saveRooms(rooms: Room[]) {
