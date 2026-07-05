@@ -42,14 +42,21 @@ export function WeeklyMoviesPanel({
 
     return counts;
   }, [screenings]);
+  const sortBySessionCount = (movieA: Movie, movieB: Movie) => {
+    const countDifference =
+      (sessionCounts.get(movieA.id) ?? 0) - (sessionCounts.get(movieB.id) ?? 0);
+
+    return countDifference || movieA.title.localeCompare(movieB.title);
+  };
   const weeklyMovies = weeklyMovieIds
     .map((movieId) => moviesById.get(movieId))
-    .filter((movie): movie is Movie => Boolean(movie));
+    .filter((movie): movie is Movie => Boolean(movie))
+    .sort(sortBySessionCount);
   const programmedOutsideList = Array.from(sessionCounts.keys())
     .filter((movieId) => !weeklyMovieIdSet.has(movieId))
     .map((movieId) => moviesById.get(movieId))
     .filter((movie): movie is Movie => Boolean(movie))
-    .sort((a, b) => a.title.localeCompare(b.title));
+    .sort(sortBySessionCount);
   const addableMovies = movies
     .filter((movie) => !movie.retiredAt && !weeklyMovieIdSet.has(movie.id))
     .filter((movie) => normalizeSearchText(movie.title).includes(normalizedQuery))
