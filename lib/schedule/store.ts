@@ -20,6 +20,7 @@ type DatabaseMovie = {
   id: string;
   title: string;
   duration_minutes: number;
+  director: string | null;
   poster_url: string | null;
   distributor_id: string | null;
   retired_at: string | null;
@@ -50,6 +51,7 @@ const mapMovieFromDatabase = (movie: DatabaseMovie): Movie => ({
   id: movie.id,
   title: movie.title,
   durationMinutes: movie.duration_minutes,
+  director: movie.director ?? "",
   posterUrl: movie.poster_url ?? "",
   distributorId: movie.distributor_id,
   retiredAt: movie.retired_at
@@ -89,7 +91,7 @@ export async function loadScheduleForWeek(weekStart: string): Promise<ScheduleSt
     supabase.from("rooms").select("id,name,position").order("position"),
     supabase
       .from("movies")
-      .select("id,title,duration_minutes,poster_url,distributor_id,retired_at")
+      .select("id,title,duration_minutes,director,poster_url,distributor_id,retired_at")
       .order("title"),
     supabase.from("distributors").select("id,name,normalized_name").order("name"),
     supabase
@@ -240,6 +242,7 @@ export async function saveMovie(movie: Movie) {
       id: movie.id,
       title: movie.title,
       duration_minutes: movie.durationMinutes,
+      director: movie.director || null,
       poster_url: movie.posterUrl || null,
       distributor_id: movie.distributorId,
       retired_at: movie.retiredAt
@@ -519,6 +522,7 @@ function loadLocalSchedule(): ScheduleState {
       movies: parsed.movies?.length
         ? parsed.movies.map((movie) => ({
             ...movie,
+            director: movie.director ?? "",
             distributorId: movie.distributorId ?? null,
             retiredAt: movie.retiredAt ?? null
           }))

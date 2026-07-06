@@ -231,7 +231,7 @@ export function ScreeningCard({
             isCompactCard ? "h-6 w-6" : "h-7 w-7"
           )}
           onClick={onDelete}
-          title="Eliminar sesion"
+          title="Eliminar sesión"
         >
           <Trash2 size={isCompactCard ? 13 : 14} />
         </button>
@@ -252,10 +252,10 @@ export function ScreeningCard({
           )}
           style={{ color: accentColor, WebkitLineClamp: isTightCard ? 1 : 2 }}
         >
-          {movie?.title ?? "Pelicula"}
+          {movie?.title ?? "Película"}
         </span>
         <span className="mt-0.5 block text-[10px] leading-none text-zinc-400">
-          {movie ? `${movie.durationMinutes} min` : "Selecciona una pelicula"}
+          {movie ? `${movie.durationMinutes} min` : "Selecciona una película"}
         </span>
         {movie?.retiredAt && !isTightCard ? (
           <span className="mt-1 block text-[11px] leading-none text-zinc-500">Retirada</span>

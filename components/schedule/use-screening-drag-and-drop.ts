@@ -256,7 +256,7 @@ export function useScreeningDragAndDrop({
 
         const screeningToPaste = copiedScreeningRef.current;
         if (!screeningToPaste) {
-          onCopyNotice("No hay sesion copiada");
+          onCopyNotice("No hay sesión copiada");
           return;
         }
 
@@ -514,5 +514,5 @@ function isEditableShortcutTarget(target: EventTarget | null) {
 }
 
 function getScreeningTitle(screening: Screening, movies: Movie[]) {
-  return movies.find((movie) => movie.id === screening.movieId)?.title ?? "Pelicula";
+  return movies.find((movie) => movie.id === screening.movieId)?.title ?? "Película";
 }

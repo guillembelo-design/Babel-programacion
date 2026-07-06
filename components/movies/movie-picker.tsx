@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { clsx } from "clsx";
 import { Distributor, Movie } from "@/lib/schedule/types";
-import { DistributorInput } from "./movie-fields";
 import { normalizeSearchText } from "./movie-utils";
 import { emptyMovieForm, MovieDraft } from "./types";
 
@@ -18,7 +17,6 @@ type MoviePickerProps = {
 
 export function MoviePicker({
   selectedMovieId,
-  distributors,
   movies,
   onSelect,
   onCreateMovie
@@ -57,7 +55,7 @@ export function MoviePicker({
       <input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Buscar pelicula"
+        placeholder="Buscar película"
         className="h-8 w-full rounded-md border border-zinc-600 bg-[#0f0f13] px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
       />
 
@@ -83,7 +81,7 @@ export function MoviePicker({
           ))
         ) : (
           <div className="rounded border border-dashed border-zinc-700 bg-[#101014] px-2 py-2 text-center text-xs text-zinc-500">
-            {selectableMovies.length ? "Sin resultados" : "Sin peliculas activas"}
+            {selectableMovies.length ? "Sin resultados" : "Sin películas activas"}
           </div>
         )}
       </div>
@@ -102,7 +100,7 @@ export function MoviePicker({
           <input
             value={draft.title}
             onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-            placeholder="Titulo"
+            placeholder="Título"
             className="h-8 w-full rounded border border-zinc-600 bg-[#202027] px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
           />
           <input
@@ -117,25 +115,16 @@ export function MoviePicker({
             }
             className="h-8 w-full rounded border border-zinc-600 bg-[#202027] px-2 text-xs text-white outline-none transition focus:border-babel-red"
           />
-          <DistributorInput
-            compact
-            distributors={distributors}
-            value={draft.distributorName}
-            selectedDistributorId={draft.distributorId}
-            onChange={(distributorName) =>
+          <input
+            value={draft.director}
+            onChange={(event) =>
               setDraft((current) => ({
                 ...current,
-                distributorName,
-                distributorId: null
+                director: event.target.value
               }))
             }
-            onSelect={(distributor) =>
-              setDraft((current) => ({
-                ...current,
-                distributorName: distributor.name,
-                distributorId: distributor.id
-              }))
-            }
+            placeholder="Director/a"
+            className="h-8 w-full rounded border border-zinc-600 bg-[#202027] px-2 text-xs text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
           />
           <div className="flex gap-1.5">
             <button
@@ -159,7 +148,7 @@ export function MoviePicker({
           onClick={startCreating}
         >
           <Plus size={13} />
-          Crear pelicula
+          Crear película
         </button>
       )}
     </div>

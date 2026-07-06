@@ -1,15 +1,13 @@
 export type MovieDraft = {
   title: string;
   durationMinutes: number;
-  distributorName: string;
-  distributorId: string | null;
+  director: string;
 };
 
 export const emptyMovieForm: MovieDraft = {
   title: "",
   durationMinutes: 100,
-  distributorName: "",
-  distributorId: null
+  director: ""
 };
 
 export type MovieSearchState = "idle" | "searching" | "error";

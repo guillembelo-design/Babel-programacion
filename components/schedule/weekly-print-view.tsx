@@ -4,7 +4,7 @@ import {
   getTurnoverConflictForScreening
 } from "@/lib/schedule/conflicts";
 import { getDayDateLabel, getWeekLabel } from "@/lib/schedule/dates";
-import { Distributor, Movie, Room, Screening, WeekdayKey, WEEKDAYS } from "@/lib/schedule/types";
+import { Movie, Room, Screening, WeekdayKey, WEEKDAYS } from "@/lib/schedule/types";
 
 const PRINT_DAY_LABELS: Record<WeekdayKey, string> = {
   friday: "Viernes",
@@ -17,7 +17,6 @@ const PRINT_DAY_LABELS: Record<WeekdayKey, string> = {
 };
 
 type WeeklyPrintViewProps = {
-  distributors: Distributor[];
   movies: Movie[];
   rooms: Room[];
   screenings: Screening[];
@@ -26,7 +25,6 @@ type WeeklyPrintViewProps = {
 };
 
 export function WeeklyPrintView({
-  distributors,
   movies,
   rooms,
   screenings,
@@ -66,9 +64,6 @@ export function WeeklyPrintView({
                     <div className="weekly-print-sessions">
                       {roomScreenings.map((screening) => {
                         const movie = movies.find((item) => item.id === screening.movieId);
-                        const distributor = movie?.distributorId
-                          ? distributors.find((item) => item.id === movie.distributorId)
-                          : null;
                         const endTime = getScreeningEndTime(screening, movies);
                         const conflict = getTurnoverConflictForScreening(
                           screening,
@@ -86,7 +81,7 @@ export function WeeklyPrintView({
                             <p>
                               {movie ? `${movie.durationMinutes} min` : "Sin duración"}
                               {endTime ? ` · Fin ${endTime}` : ""}
-                              {distributor ? ` · ${distributor.name}` : ""}
+                              {movie?.director ? ` · Director/a: ${movie.director}` : ""}
                             </p>
                             {conflict ? (
                               <p className="weekly-print-conflict">

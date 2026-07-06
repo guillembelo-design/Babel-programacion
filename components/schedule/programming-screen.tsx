@@ -59,7 +59,6 @@ import {
   deleteScreening,
   deleteDistributor,
   detachAndDeleteDistributor,
-  findOrCreateDistributor,
   loadScheduleForWeek,
   loadScreeningsForWeek,
   loadWeeklyMoviesForWeek,
@@ -74,7 +73,6 @@ import {
   updateDistributor
 } from "@/lib/schedule/store";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { DistributorManager } from "@/components/distributors/distributor-manager";
 import { MoviePanel } from "@/components/movies/movie-panel";
 import {
   emptyMovieForm,
@@ -95,9 +93,8 @@ import { WeeklyPrintView } from "./weekly-print-view";
 import { WeeklyMoviesPanel } from "./weekly-movies-panel";
 
 const MAIN_SECTIONS = [
-  { key: "schedule", label: "Programacion salas" },
-  { key: "movies", label: "Peliculas" },
-  { key: "distributors", label: "Distribuidoras" }
+  { key: "schedule", label: "Programación salas" },
+  { key: "movies", label: "Películas" }
 ] as const;
 
 type MainSection = (typeof MAIN_SECTIONS)[number]["key"];
@@ -350,7 +347,7 @@ export function ProgrammingScreen({
     turnoverMinutes: number;
   }) =>
     window.confirm(
-      `Hay menos de ${conflict.turnoverMinutes} minutos entre sesiones. Anterior termina a las ${conflict.previousEndsAt}. Con ${conflict.turnoverMinutes} min de margen, esta sesion deberia empezar a partir de las ${conflict.minimumStartAt}. Margen real: ${conflict.actualGapMinutes} min. Quieres guardar igualmente?`
+      `Hay menos de ${conflict.turnoverMinutes} minutos entre sesiones. Anterior termina a las ${conflict.previousEndsAt}. Con ${conflict.turnoverMinutes} min de margen, esta sesión debería empezar a partir de las ${conflict.minimumStartAt}. Margen real: ${conflict.actualGapMinutes} min. ¿Quieres guardar igualmente?`
     );
 
   const getConflictsInvolvingMovie = (
@@ -678,40 +675,14 @@ export function ProgrammingScreen({
       weekStart
     });
 
-  const resolveDistributorFromDraft = async (draft: MovieDraft) => {
-    const distributorName = draft.distributorName.trim();
-    const normalizedName = normalizeDistributorName(distributorName);
-
-    if (!distributorName || !normalizedName) {
-      return null;
-    }
-
-    const selectedDistributor = draft.distributorId
-      ? state.distributors.find((distributor) => distributor.id === draft.distributorId)
-      : null;
-
-    if (selectedDistributor?.normalizedName === normalizedName) {
-      return selectedDistributor;
-    }
-
-    const existingDistributor = state.distributors.find(
-      (distributor) => distributor.normalizedName === normalizedName
-    );
-
-    if (existingDistributor) {
-      return existingDistributor;
-    }
-
-    return findOrCreateDistributor(distributorName);
-  };
-
   const createMovieFromDraft = async (draft: MovieDraft) => {
     const title = draft.title.trim();
     const durationMinutes = Number(draft.durationMinutes);
+    const director = draft.director.trim();
 
     if (!title || !Number.isFinite(durationMinutes) || durationMinutes <= 0) {
       setSaveState("error");
-      setSaveError("Introduce titulo y duracion validos.");
+      setSaveError("Introduce título y duración válidos.");
       return null;
     }
 
@@ -719,13 +690,13 @@ export function ProgrammingScreen({
     setSaveError("");
 
     try {
-      const distributor = await resolveDistributorFromDraft(draft);
       const movie: Movie = {
         id: crypto.randomUUID(),
         title,
         durationMinutes,
+        director,
         posterUrl: "",
-        distributorId: distributor?.id ?? null,
+        distributorId: null,
         retiredAt: null
       };
 
@@ -733,9 +704,6 @@ export function ProgrammingScreen({
 
       setState((current) => ({
         ...current,
-        distributors: distributor
-          ? upsertDistributor(current.distributors, distributor)
-          : current.distributors,
         movies: [...current.movies, movie].sort((a, b) => a.title.localeCompare(b.title))
       }));
       setSaveState("saved");
@@ -755,16 +723,11 @@ export function ProgrammingScreen({
   };
 
   const startEditMovie = (movie: Movie) => {
-    const distributor = movie.distributorId
-      ? state.distributors.find((item) => item.id === movie.distributorId)
-      : null;
-
     setEditingMovieId(movie.id);
     setMovieEditDraft({
       title: movie.title,
       durationMinutes: movie.durationMinutes,
-      distributorName: distributor?.name ?? "",
-      distributorId: distributor?.id ?? null
+      director: movie.director
     });
   };
 
@@ -776,10 +739,11 @@ export function ProgrammingScreen({
   const updateMovieFromDraft = async (movie: Movie, draft: MovieDraft) => {
     const title = draft.title.trim();
     const durationMinutes = Number(draft.durationMinutes);
+    const director = draft.director.trim();
 
     if (!title || !Number.isFinite(durationMinutes) || durationMinutes <= 0) {
       setSaveState("error");
-      setSaveError("Introduce titulo y duracion validos.");
+      setSaveError("Introduce título y duración válidos.");
       return;
     }
 
@@ -798,21 +762,17 @@ export function ProgrammingScreen({
     setSaveError("");
 
     try {
-      const distributor = await resolveDistributorFromDraft(draft);
       const updatedMovie: Movie = {
         ...movie,
         title,
         durationMinutes,
-        distributorId: distributor?.id ?? null
+        director
       };
 
       await saveMovie(updatedMovie);
 
       setState((current) => ({
         ...current,
-        distributors: distributor
-          ? upsertDistributor(current.distributors, distributor)
-          : current.distributors,
         movies: current.movies
           .map((item) => (item.id === movie.id ? updatedMovie : item))
           .sort((a, b) => a.title.localeCompare(b.title))
@@ -860,8 +820,7 @@ export function ProgrammingScreen({
     setImportDraft({
       title: result.title,
       durationMinutes: result.durationMinutes ?? 100,
-      distributorName: "",
-      distributorId: null
+      director: ""
     });
     setImportSourceUrl(result.sourceUrl);
   };
@@ -883,7 +842,7 @@ export function ProgrammingScreen({
     const actionLabel = usageCount ? "retirar" : "borrar";
     const confirmed = window.confirm(
       usageCount
-        ? `Retirar "${movie.title}" del selector. Las sesiones existentes conservaran la pelicula.`
+        ? `Retirar "${movie.title}" del selector. Las sesiones existentes conservarán la película.`
         : `Borrar "${movie.title}" definitivamente.`
     );
 
@@ -1116,14 +1075,14 @@ export function ProgrammingScreen({
 
     if (!sourceScreenings.length) {
       setSaveState("error");
-      setSaveError("El dia origen no tiene sesiones.");
+      setSaveError("El día origen no tiene sesiones.");
       return;
     }
 
     const sourceLabel = getWeekdayLabel(duplicateSource);
     const targetLabel = getWeekdayLabel(duplicateTarget);
     const confirmed = window.confirm(
-      `Duplicar ${sourceLabel} sobre ${targetLabel}. Se sustituiran ${existingTargetIds.length} sesiones del dia destino.`
+      `Duplicar ${sourceLabel} sobre ${targetLabel}. Se sustituirán ${existingTargetIds.length} sesiones del día destino.`
     );
 
     if (!confirmed) return;
@@ -1175,7 +1134,7 @@ export function ProgrammingScreen({
 
     if (!sourceScreenings.length && !sourceWeeklyMovieIds.length) {
       setSaveState("error");
-      setSaveError("La semana actual no tiene sesiones ni peliculas en el listado.");
+      setSaveError("La semana actual no tiene sesiones ni películas en el listado.");
       return;
     }
 
@@ -1195,8 +1154,8 @@ export function ProgrammingScreen({
 
     const confirmed = window.confirm(
       hasTargetContent
-        ? `La semana siguiente ya tiene ${targetScreenings.length} sesiones y ${targetWeeklyMovieIds.length} peliculas en el listado. Quieres reemplazarla por ${sourceScreenings.length} sesiones y ${sourceWeeklyMovieIds.length} peliculas de la semana actual?`
-        : `Se copiaran ${sourceScreenings.length} sesiones y ${sourceWeeklyMovieIds.length} peliculas a la semana del ${getWeekLabel(nextWeekStart)}.`
+        ? `La semana siguiente ya tiene ${targetScreenings.length} sesiones y ${targetWeeklyMovieIds.length} películas en el listado. ¿Quieres reemplazarla por ${sourceScreenings.length} sesiones y ${sourceWeeklyMovieIds.length} películas de la semana actual?`
+        : `Se copiarán ${sourceScreenings.length} sesiones y ${sourceWeeklyMovieIds.length} películas a la semana del ${getWeekLabel(nextWeekStart)}.`
     );
 
     if (!confirmed) return;
@@ -1274,7 +1233,7 @@ export function ProgrammingScreen({
                 Cines Babel
               </p>
               <h1 className="mt-1 text-xl font-semibold tracking-normal md:text-2xl">
-                Programacion
+                Programación
               </h1>
             </div>
 
@@ -1288,7 +1247,7 @@ export function ProgrammingScreen({
               className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
               onClick={() => void undoLastSessionAction()}
               disabled={!canUndo}
-              title="Deshacer ultima accion de sesiones"
+              title="Deshacer última acción de sesiones"
             >
               <Undo2 size={14} />
               Deshacer
@@ -1318,14 +1277,14 @@ export function ProgrammingScreen({
                 className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white disabled:cursor-not-allowed disabled:text-zinc-500"
                 onClick={() => void onSignOut()}
                 disabled={isSigningOut}
-                title={userEmail ? `Sesion: ${userEmail}` : "Cerrar sesion"}
+                title={userEmail ? `Sesión: ${userEmail}` : "Cerrar sesión"}
               >
                 {isSigningOut ? (
                   <Loader2 className="animate-spin" size={14} />
                 ) : (
                   <LogOut size={14} />
                 )}
-                {isSigningOut ? "Saliendo" : "Cerrar sesion"}
+                {isSigningOut ? "Saliendo" : "Cerrar sesión"}
               </button>
             ) : null}
             <label className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300">
@@ -1540,7 +1499,7 @@ export function ProgrammingScreen({
                         <button
                           className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-babel-red text-white transition hover:bg-red-600"
                           onClick={() => addScreening(room)}
-                          title={`Anadir sesion en ${room.name}`}
+                          title={`Añadir sesión en ${room.name}`}
                         >
                           <Plus size={16} />
                         </button>
@@ -1673,7 +1632,6 @@ export function ProgrammingScreen({
 
         {activeSection === "movies" ? (
           <MoviePanel
-            distributors={state.distributors}
             editingMovieId={editingMovieId}
             importDraft={importDraft}
             importSourceUrl={importSourceUrl}
@@ -1701,35 +1659,6 @@ export function ProgrammingScreen({
           />
         ) : null}
 
-        {activeSection === "distributors" ? (
-          <div className="max-w-3xl">
-            <DistributorManager
-              activeActionId={activeDistributorActionId}
-              activeAction={activeDistributorAction}
-              distributors={state.distributors}
-              editingDistributorId={editingDistributorId}
-              isOpen={isDistributorPanelOpen}
-              mergeTargetDistributorId={mergeTargetDistributorId}
-              movieCounts={distributorMovieCounts}
-              renameDraft={distributorRenameDraft}
-              onCancelAction={() => {
-                setActiveDistributorActionId(null);
-                setActiveDistributorAction(null);
-                setMergeTargetDistributorId("");
-              }}
-              onCancelRename={cancelRenameDistributor}
-              onDetachAndRemove={detachMoviesAndRemoveDistributor}
-              onMerge={mergeDistributorIntoTarget}
-              onRequestMerge={requestMergeDistributor}
-              onRemove={requestRemoveDistributor}
-              onRename={renameDistributor}
-              onRenameDraftChange={setDistributorRenameDraft}
-              onSelectMergeTarget={setMergeTargetDistributorId}
-              onStartRename={startRenameDistributor}
-              onToggle={() => setIsDistributorPanelOpen((current) => !current)}
-            />
-          </div>
-        ) : null}
       </div>
       {placementState && placementScreening ? (
         <div
@@ -1748,19 +1677,18 @@ export function ProgrammingScreen({
             {isPasteMode ? "Pegar copia" : placementScreening.startsAt}
           </div>
           <div className="mt-1 truncate text-xs font-bold uppercase">
-            {placementMovie?.title ?? "Pelicula"}
+            {placementMovie?.title ?? "Película"}
           </div>
         </div>
       ) : null}
     </main>
-    <WeeklyPrintView
-      distributors={state.distributors}
-      movies={state.movies}
-      rooms={state.rooms}
-      screenings={state.screenings}
-      turnoverMinutes={turnoverMinutes}
-      weekStart={weekStart}
-    />
+      <WeeklyPrintView
+        movies={state.movies}
+        rooms={state.rooms}
+        screenings={state.screenings}
+        turnoverMinutes={turnoverMinutes}
+        weekStart={weekStart}
+      />
     </>
   );
 }

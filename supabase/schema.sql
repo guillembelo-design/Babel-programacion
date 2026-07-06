@@ -16,6 +16,7 @@ create table if not exists public.movies (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   duration_minutes integer not null check (duration_minutes > 0),
+  director text,
   poster_url text,
   distributor_id uuid references public.distributors(id) on delete set null,
   retired_at timestamptz,
@@ -25,6 +26,9 @@ create table if not exists public.movies (
 
 alter table public.movies
 add column if not exists distributor_id uuid references public.distributors(id) on delete set null;
+
+alter table public.movies
+add column if not exists director text;
 
 create index if not exists movies_distributor_id_idx
   on public.movies (distributor_id);

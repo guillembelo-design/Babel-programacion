@@ -7,14 +7,12 @@ import { getDistributorSuggestions, getFilmAffinitySearchUrl } from "./movie-uti
 
 type MovieDraftFieldsProps = {
   draft: MovieDraft;
-  distributors: Distributor[];
   sourceUrl: string;
   onChange: (draft: MovieDraft) => void;
 };
 
 export function MovieDraftFields({
   draft,
-  distributors,
   sourceUrl,
   onChange
 }: MovieDraftFieldsProps) {
@@ -27,7 +25,7 @@ export function MovieDraftFields({
       <input
         value={draft.title}
         onChange={(event) => updateDraft({ title: event.target.value })}
-        placeholder="Titulo"
+        placeholder="Título"
         className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
       />
       <input
@@ -35,24 +33,14 @@ export function MovieDraftFields({
         min="1"
         value={draft.durationMinutes}
         onChange={(event) => updateDraft({ durationMinutes: Number(event.target.value) })}
+        aria-label="Duración"
         className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
       />
-      <DistributorInput
-        distributors={distributors}
-        value={draft.distributorName}
-        selectedDistributorId={draft.distributorId}
-        onChange={(distributorName) =>
-          updateDraft({
-            distributorName,
-            distributorId: null
-          })
-        }
-        onSelect={(distributor) =>
-          updateDraft({
-            distributorName: distributor.name,
-            distributorId: distributor.id
-          })
-        }
+      <input
+        value={draft.director}
+        onChange={(event) => updateDraft({ director: event.target.value })}
+        placeholder="Director/a"
+        className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
       />
       <div className="flex flex-wrap gap-2 text-xs">
         {sourceUrl ? (
@@ -80,11 +68,10 @@ export function MovieDraftFields({
 
 type MovieEditFieldsProps = {
   draft: MovieDraft;
-  distributors: Distributor[];
   onChange: (draft: MovieDraft) => void;
 };
 
-export function MovieEditFields({ draft, distributors, onChange }: MovieEditFieldsProps) {
+export function MovieEditFields({ draft, onChange }: MovieEditFieldsProps) {
   const updateDraft = (patch: Partial<MovieDraft>) => {
     onChange({ ...draft, ...patch });
   };
@@ -94,7 +81,7 @@ export function MovieEditFields({ draft, distributors, onChange }: MovieEditFiel
       <input
         value={draft.title}
         onChange={(event) => updateDraft({ title: event.target.value })}
-        placeholder="Titulo"
+        placeholder="Título"
         className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
       />
       <input
@@ -102,25 +89,14 @@ export function MovieEditFields({ draft, distributors, onChange }: MovieEditFiel
         min="1"
         value={draft.durationMinutes}
         onChange={(event) => updateDraft({ durationMinutes: Number(event.target.value) })}
+        aria-label="Duración"
         className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition focus:border-babel-red"
       />
-      <DistributorInput
-        compact
-        distributors={distributors}
-        value={draft.distributorName}
-        selectedDistributorId={draft.distributorId}
-        onChange={(distributorName) =>
-          updateDraft({
-            distributorName,
-            distributorId: null
-          })
-        }
-        onSelect={(distributor) =>
-          updateDraft({
-            distributorName: distributor.name,
-            distributorId: distributor.id
-          })
-        }
+      <input
+        value={draft.director}
+        onChange={(event) => updateDraft({ director: event.target.value })}
+        placeholder="Director/a"
+        className="h-9 w-full rounded-md border border-babel-line bg-zinc-950/40 px-2 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
       />
     </div>
   );

@@ -2,17 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { Check, ExternalLink, Film, Loader2, Plus, Search } from "lucide-react";
-import { Distributor, Movie } from "@/lib/schedule/types";
-import { DistributorInput, MovieDraftFields, MovieEditFields } from "./movie-fields";
-import {
-  getDistributorName,
-  getFilmAffinitySearchUrl,
-  normalizeSearchText
-} from "./movie-utils";
+import { Movie } from "@/lib/schedule/types";
+import { MovieDraftFields, MovieEditFields } from "./movie-fields";
+import { getFilmAffinitySearchUrl, normalizeSearchText } from "./movie-utils";
 import { MovieDraft, MovieSearchResult, MovieSearchState } from "./types";
 
 type MoviePanelProps = {
-  distributors: Distributor[];
   editingMovieId: string | null;
   importDraft: MovieDraft | null;
   importSourceUrl: string;
@@ -40,7 +35,6 @@ type MoviePanelProps = {
 };
 
 export function MoviePanel({
-  distributors,
   editingMovieId,
   importDraft,
   importSourceUrl,
@@ -74,12 +68,11 @@ export function MoviePanel({
       movies.filter((movie) => {
         if (!normalizedCatalogQuery) return true;
 
-        const distributorName = getDistributorName(distributors, movie.distributorId);
-        const searchableText = normalizeSearchText(`${movie.title} ${distributorName}`);
+        const searchableText = normalizeSearchText(`${movie.title} ${movie.director}`);
 
         return searchableText.includes(normalizedCatalogQuery);
       }),
-    [distributors, movies, normalizedCatalogQuery]
+    [movies, normalizedCatalogQuery]
   );
 
   return (
@@ -88,13 +81,13 @@ export function MoviePanel({
         <section className="rounded-md border border-babel-line bg-babel-panel p-4">
           <div className="mb-4 flex items-center gap-2">
             <Film size={18} className="text-babel-red" />
-            <h2 className="font-medium">Peliculas</h2>
+            <h2 className="font-medium">Películas</h2>
           </div>
 
           <div className="space-y-3 border-b border-babel-line pb-4">
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                Buscar duracion
+                Buscar duración
               </p>
               <div className="flex flex-wrap gap-2">
                 <input
@@ -105,7 +98,7 @@ export function MoviePanel({
                       onSearchMovies();
                     }
                   }}
-                  placeholder="Titulo de pelicula"
+                  placeholder="Título de película"
                   className="h-10 min-w-[220px] flex-1 rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
                 />
                 <button
@@ -155,10 +148,10 @@ export function MoviePanel({
                       {result.title}
                     </span>
                     <span className="mt-0.5 block text-xs text-zinc-400">
-                      {result.year ?? "Ano no disponible"} ·{" "}
+                      {result.year ?? "Año no disponible"} ·{" "}
                       {result.durationMinutes
                         ? `${result.durationMinutes} min`
-                        : "Duracion pendiente"}
+                        : "Duración pendiente"}
                     </span>
                     <span className="mt-0.5 block text-xs text-zinc-500">Wikidata</span>
                   </button>
@@ -168,9 +161,8 @@ export function MoviePanel({
 
             {importDraft ? (
               <div className="rounded-md border border-babel-red/50 bg-red-950/20 p-3">
-                <p className="mb-3 text-sm font-medium text-white">Es esta la pelicula?</p>
+                <p className="mb-3 text-sm font-medium text-white">¿Es esta la película?</p>
                 <MovieDraftFields
-                  distributors={distributors}
                   draft={importDraft}
                   sourceUrl={importSourceUrl}
                   onChange={onImportDraftChange}
@@ -205,7 +197,7 @@ export function MoviePanel({
             <input
               value={movieForm.title}
               onChange={(event) => onMovieFormChange({ ...movieForm, title: event.target.value })}
-              placeholder="Titulo"
+              placeholder="Título"
               className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
             />
             <input
@@ -220,24 +212,16 @@ export function MoviePanel({
               }
               className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition focus:border-babel-red"
             />
-            <DistributorInput
-              distributors={distributors}
-              value={movieForm.distributorName}
-              selectedDistributorId={movieForm.distributorId}
-              onChange={(distributorName) =>
+            <input
+              value={movieForm.director}
+              onChange={(event) =>
                 onMovieFormChange({
                   ...movieForm,
-                  distributorName,
-                  distributorId: null
+                  director: event.target.value
                 })
               }
-              onSelect={(distributor) =>
-                onMovieFormChange({
-                  ...movieForm,
-                  distributorName: distributor.name,
-                  distributorId: distributor.id
-                })
-              }
+              placeholder="Director/a"
+              className="h-10 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red"
             />
             <button
               className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-babel-red px-3 text-sm font-medium text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -245,7 +229,7 @@ export function MoviePanel({
               disabled={!movieForm.title.trim()}
             >
               <Plus size={16} />
-              Anadir pelicula
+              Añadir película
             </button>
           </div>
         </section>
@@ -253,11 +237,11 @@ export function MoviePanel({
 
       <section className="rounded-md border border-babel-line bg-babel-panel p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-medium">Catalogo de peliculas</h2>
+          <h2 className="font-medium">Catálogo de películas</h2>
           <input
             value={catalogQuery}
             onChange={(event) => setCatalogQuery(event.target.value)}
-            placeholder="Buscar en catalogo"
+            placeholder="Buscar en catálogo"
             className="h-9 w-full rounded-md border border-babel-line bg-babel-card px-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-babel-red sm:w-56"
           />
         </div>
@@ -267,20 +251,19 @@ export function MoviePanel({
               const usageCount = movieUsageCounts.get(movie.id) ?? 0;
               const canDelete = usageCount === 0;
               const isRetired = Boolean(movie.retiredAt);
-              const distributorName = getDistributorName(distributors, movie.distributorId);
+              const director = movie.director.trim();
               const isEditingMovie = editingMovieId === movie.id;
               const buttonLabel = canDelete
                 ? "Borrar"
                 : isRetired
                   ? "Retirada"
-                  : "Retirar pelicula";
+                  : "Retirar película";
 
               return (
                 <div key={movie.id} className="rounded-md bg-babel-card p-2">
                   {isEditingMovie ? (
                     <div className="space-y-2">
                       <MovieEditFields
-                        distributors={distributors}
                         draft={movieEditDraft}
                         onChange={onMovieEditDraftChange}
                       />
@@ -310,8 +293,8 @@ export function MoviePanel({
                         {movie.durationMinutes} min
                         {usageCount ? ` · ${usageCount} sesiones` : ""}
                       </p>
-                      {distributorName ? (
-                        <p className="truncate text-xs text-zinc-500">{distributorName}</p>
+                      {director ? (
+                        <p className="truncate text-xs text-zinc-500">Director/a: {director}</p>
                       ) : null}
                       {isRetired ? (
                         <p className="mt-1 text-xs text-zinc-500">Retirada del selector</p>
@@ -338,7 +321,7 @@ export function MoviePanel({
             })
           ) : (
             <div className="rounded-md border border-dashed border-zinc-700 p-4 text-center text-sm text-zinc-500">
-              Sin peliculas
+              Sin películas
             </div>
           )}
         </div>

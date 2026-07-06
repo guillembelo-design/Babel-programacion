@@ -8,6 +8,7 @@ export type Movie = {
   id: string;
   title: string;
   durationMinutes: number;
+  director: string;
   posterUrl: string;
   distributorId: string | null;
   retiredAt: string | null;
@@ -56,11 +57,11 @@ export const DEFAULT_TURNOVER_MINUTES = 15;
 
 export const WEEKDAYS: Array<{ key: WeekdayKey; label: string; shortLabel: string }> = [
   { key: "friday", label: "Viernes", shortLabel: "Vie" },
-  { key: "saturday", label: "Sabado", shortLabel: "Sab" },
+  { key: "saturday", label: "Sábado", shortLabel: "Sáb" },
   { key: "sunday", label: "Domingo", shortLabel: "Dom" },
   { key: "monday", label: "Lunes", shortLabel: "Lun" },
   { key: "tuesday", label: "Martes", shortLabel: "Mar" },
-  { key: "wednesday", label: "Miercoles", shortLabel: "Mie" },
+  { key: "wednesday", label: "Miércoles", shortLabel: "Mié" },
   { key: "thursday", label: "Jueves", shortLabel: "Jue" }
 ];
 
