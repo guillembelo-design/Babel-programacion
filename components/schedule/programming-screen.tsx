@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  FileText,
   Film,
   Loader2,
   LogOut,
@@ -89,6 +90,7 @@ import {
   useScreeningDragAndDrop
 } from "./use-screening-drag-and-drop";
 import { useUndoableScreenings } from "./use-undoable-screenings";
+import { FerminPdfView } from "./fermin-pdf-view";
 import { WeeklyPrintView } from "./weekly-print-view";
 import { WeeklyMoviesPanel } from "./weekly-movies-panel";
 
@@ -98,6 +100,8 @@ const MAIN_SECTIONS = [
 ] as const;
 
 type MainSection = (typeof MAIN_SECTIONS)[number]["key"];
+
+type PrintMode = "weekly" | "fermin";
 
 type ProgrammingScreenProps = {
   isSigningOut?: boolean;
@@ -131,6 +135,7 @@ export function ProgrammingScreen({
   const [importDraft, setImportDraft] = useState<MovieDraft | null>(null);
   const [importSourceUrl, setImportSourceUrl] = useState("");
   const [activeSection, setActiveSection] = useState<MainSection>("schedule");
+  const [printMode, setPrintMode] = useState<PrintMode>("weekly");
   const [weeklyMovieIds, setWeeklyMovieIds] = useState<string[]>([]);
   const [isWeeklyMoviesPanelOpen, setIsWeeklyMoviesPanelOpen] = useState(true);
   const [selectedScreeningId, setSelectedScreeningId] = useState<string | null>(null);
@@ -216,6 +221,13 @@ export function ProgrammingScreen({
   }, [copyNotice]);
 
   useEffect(() => {
+    const handleAfterPrint = () => setPrintMode("weekly");
+
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => window.removeEventListener("afterprint", handleAfterPrint);
+  }, []);
+
+  useEffect(() => {
     if (duplicateTarget === duplicateSource) {
       setDuplicateTarget(WEEKDAYS.find((day) => day.key !== duplicateSource)?.key ?? "friday");
     }
@@ -285,6 +297,13 @@ export function ProgrammingScreen({
       setSaveError(getErrorMessage(error));
       return false;
     }
+  };
+
+  const printSchedule = (mode: PrintMode) => {
+    setPrintMode(mode);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.print());
+    });
   };
 
   const { canUndo, pushUndoSnapshot, undoLastSessionAction, undoNotice } =
@@ -1422,10 +1441,17 @@ export function ProgrammingScreen({
               </button>
               <button
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white"
-                onClick={() => window.print()}
+                onClick={() => printSchedule("weekly")}
               >
                 <Printer size={16} />
                 Imprimir semana
+              </button>
+              <button
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white"
+                onClick={() => printSchedule("fermin")}
+              >
+                <FileText size={16} />
+                PDF Fermín
               </button>
             </div>
           </div>
@@ -1682,13 +1708,21 @@ export function ProgrammingScreen({
         </div>
       ) : null}
     </main>
-      <WeeklyPrintView
-        movies={state.movies}
-        rooms={state.rooms}
-        screenings={state.screenings}
-        turnoverMinutes={turnoverMinutes}
-        weekStart={weekStart}
-      />
+      {printMode === "weekly" ? (
+        <WeeklyPrintView
+          movies={state.movies}
+          rooms={state.rooms}
+          screenings={state.screenings}
+          turnoverMinutes={turnoverMinutes}
+          weekStart={weekStart}
+        />
+      ) : (
+        <FerminPdfView
+          movies={state.movies}
+          screenings={state.screenings}
+          weekStart={weekStart}
+        />
+      )}
     </>
   );
 }
