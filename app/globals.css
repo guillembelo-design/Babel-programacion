@@ -62,6 +62,11 @@ select {
     margin: 9mm;
   }
 
+  @page fermin-pdf {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
   :root {
     color-scheme: light;
   }
@@ -217,6 +222,108 @@ select {
     color: #777777;
     margin: 0;
     padding: 8px 4px;
+    text-align: center;
+  }
+
+  .fermin-print-view {
+    color: #111111;
+    display: block;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9px;
+    line-height: 1.18;
+    page: fermin-pdf;
+  }
+
+  .fermin-print-header {
+    align-items: baseline;
+    border-bottom: 1.5px solid #111111;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    padding-bottom: 4px;
+  }
+
+  .fermin-print-header p {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    margin: 0;
+  }
+
+  .fermin-print-header span {
+    font-size: 8.5px;
+    font-weight: 700;
+  }
+
+  .fermin-print-table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .fermin-print-table thead {
+    display: table-header-group;
+  }
+
+  .fermin-print-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .fermin-print-table th,
+  .fermin-print-table td {
+    border: 0.7px solid #333333;
+    padding: 2.8px 3.2px;
+    vertical-align: top;
+  }
+
+  .fermin-print-table th {
+    background: #eeeeee;
+    font-size: 8px;
+    font-weight: 900;
+    text-align: center;
+  }
+
+  .fermin-print-table th:first-child,
+  .fermin-print-table td:first-child {
+    width: 28%;
+  }
+
+  .fermin-print-table th:not(:first-child),
+  .fermin-print-table td:not(:first-child) {
+    width: 10.28%;
+  }
+
+  .fermin-print-movie-cell strong {
+    display: block;
+    font-size: 9.2px;
+    font-weight: 900;
+    line-height: 1.08;
+    text-transform: uppercase;
+  }
+
+  .fermin-print-movie-cell span {
+    color: #444444;
+    display: block;
+    font-size: 7.4px;
+    font-weight: 700;
+    line-height: 1.12;
+    margin-top: 1px;
+  }
+
+  .fermin-print-hours-cell {
+    font-size: 8.4px;
+    font-weight: 800;
+    line-height: 1.16;
+    text-align: center;
+  }
+
+  .fermin-print-empty {
+    border: 1px dashed #999999;
+    color: #555555;
+    font-size: 9px;
+    margin: 0;
+    padding: 8px;
     text-align: center;
   }
 }
