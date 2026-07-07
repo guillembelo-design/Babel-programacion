@@ -1,5 +1,8 @@
 import { DEFAULT_TURNOVER_MINUTES, Movie, Screening, ScreeningStatus } from "./types";
 
+export const EXACT_SCREENING_DUPLICATE_MESSAGE =
+  "Ya existe una sesión en esa sala a esa hora. Cambia la hora o elige otra sala.";
+
 export type TurnoverConflict = {
   previousScreeningId: string;
   currentScreeningId: string;
@@ -39,6 +42,26 @@ export function compareScreeningStartTimes(a: Screening, b: Screening) {
   if (bMinutes === null) return -1;
 
   return aMinutes - bMinutes;
+}
+
+export function findExactScreeningDuplicate(
+  screenings: Screening[],
+  candidate: Pick<Screening, "id" | "weekStart" | "day" | "roomId" | "startsAt">,
+  ignoredIds: string[] = []
+) {
+  const ignoredIdSet = new Set([candidate.id, ...ignoredIds].filter(Boolean));
+  const candidateStart = normalizeScreeningStartTime(candidate.startsAt);
+
+  return (
+    screenings.find(
+      (screening) =>
+        !ignoredIdSet.has(screening.id) &&
+        screening.weekStart === candidate.weekStart &&
+        screening.day === candidate.day &&
+        screening.roomId === candidate.roomId &&
+        normalizeScreeningStartTime(screening.startsAt) === candidateStart
+    ) ?? null
+  );
 }
 
 export function getScreeningStatus(
@@ -174,4 +197,8 @@ function findPreviousScreeningWithEarlierStart(
   }
 
   return null;
+}
+
+function normalizeScreeningStartTime(startsAt: string) {
+  return startsAt.trim().slice(0, 5);
 }

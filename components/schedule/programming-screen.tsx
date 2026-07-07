@@ -17,6 +17,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "clsx";
 import {
   compareScreeningStartTimes,
+  EXACT_SCREENING_DUPLICATE_MESSAGE,
+  findExactScreeningDuplicate,
   getScreeningStatus,
   getTurnoverConflicts,
   isValidScreeningTime
@@ -474,6 +476,12 @@ export function ProgrammingScreen({
       return false;
     }
 
+    if (findExactScreeningDuplicate(state.screenings, screening)) {
+      setSaveState("error");
+      setSaveError(EXACT_SCREENING_DUPLICATE_MESSAGE);
+      return false;
+    }
+
     const conflicts = getConflictsInvolvingScreening(screening.id, nextScreenings);
     if (conflicts.length && !confirmTurnoverConflict(conflicts[0])) {
       revertScreeningToLastSaved(screening.id);
@@ -576,6 +584,16 @@ export function ProgrammingScreen({
         roomId: nextRoomId,
         startsAt: nextStartsAt
       };
+      const ignoredDuplicateIds = [
+        draggedScreening.id,
+        replacementScreening?.id
+      ].filter((id): id is string => Boolean(id));
+
+      if (findExactScreeningDuplicate(state.screenings, movedScreening, ignoredDuplicateIds)) {
+        showDragNotice(EXACT_SCREENING_DUPLICATE_MESSAGE);
+        return;
+      }
+
       const nextScreenings = [
         ...state.screenings.filter(
           (screening) =>
@@ -670,6 +688,13 @@ export function ProgrammingScreen({
         roomId: nextRoomId,
         startsAt: nextStartsAt
       };
+      const ignoredDuplicateIds = replacementScreening ? [replacementScreening.id] : [];
+
+      if (findExactScreeningDuplicate(state.screenings, pastedScreening, ignoredDuplicateIds)) {
+        showDragNotice(EXACT_SCREENING_DUPLICATE_MESSAGE);
+        return;
+      }
+
       const nextScreenings = [
         ...state.screenings.filter((screening) => screening.id !== replacementScreening?.id),
         pastedScreening
@@ -1176,6 +1201,13 @@ export function ProgrammingScreen({
       id: crypto.randomUUID(),
       day: duplicateTarget
     }));
+
+    if (copies.some((screening) => findExactScreeningDuplicate(copies, screening))) {
+      setSaveState("error");
+      setSaveError(EXACT_SCREENING_DUPLICATE_MESSAGE);
+      return;
+    }
+
     const nextScreenings = [
       ...state.screenings.filter((screening) => !existingTargetIds.includes(screening.id)),
       ...copies
@@ -1250,6 +1282,13 @@ export function ProgrammingScreen({
       id: crypto.randomUUID(),
       weekStart: nextWeekStart
     }));
+
+    if (copies.some((screening) => findExactScreeningDuplicate(copies, screening))) {
+      setSaveState("error");
+      setSaveError(EXACT_SCREENING_DUPLICATE_MESSAGE);
+      return;
+    }
+
     const saved = await runSaving(async () => {
       try {
         await Promise.all(targetScreenings.map((screening) => deleteScreening(screening.id)));
