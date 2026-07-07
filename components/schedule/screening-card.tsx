@@ -277,8 +277,9 @@ export function ScreeningCard({
 
       {turnoverConflict && !isTightCard ? (
         <p className="mt-0.5 shrink-0 text-center text-[10px] leading-tight text-red-200">
-          Menos de {turnoverConflict.turnoverMinutes} min. Mínimo{" "}
-          {turnoverConflict.minimumStartAt}. Margen real {turnoverConflict.actualGapMinutes} min.
+          {turnoverConflict.actualGapMinutes < 0
+            ? `Solapa ${Math.abs(turnoverConflict.actualGapMinutes)} min. Anterior termina a las ${turnoverConflict.previousEndsAt}.`
+            : `Menos de ${turnoverConflict.turnoverMinutes} min. Mínimo ${turnoverConflict.minimumStartAt}. Margen real ${turnoverConflict.actualGapMinutes} min.`}
         </p>
       ) : null}
 

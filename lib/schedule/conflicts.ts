@@ -127,8 +127,13 @@ export function getTurnoverConflicts(
     const sorted = [...group].sort((a, b) => a.startMinutes - b.startMinutes);
 
     for (let index = 1; index < sorted.length; index += 1) {
-      const previous = sorted[index - 1];
       const current = sorted[index];
+      const previous = findPreviousScreeningWithEarlierStart(sorted, index);
+
+      if (!previous) {
+        continue;
+      }
+
       const minimumStartMinutes = previous.endMinutes + turnoverMinutes;
 
       if (current.startMinutes < minimumStartMinutes) {
@@ -145,4 +150,28 @@ export function getTurnoverConflicts(
   });
 
   return conflicts;
+}
+
+function findPreviousScreeningWithEarlierStart(
+  sortedScreenings: Array<{
+    screening: Screening;
+    startMinutes: number;
+    endMinutes: number;
+  }>,
+  currentIndex: number
+) {
+  const current = sortedScreenings[currentIndex];
+
+  for (let index = currentIndex - 1; index >= 0; index -= 1) {
+    const candidate = sortedScreenings[index];
+
+    if (
+      candidate.screening.id !== current.screening.id &&
+      candidate.startMinutes < current.startMinutes
+    ) {
+      return candidate;
+    }
+  }
+
+  return null;
 }

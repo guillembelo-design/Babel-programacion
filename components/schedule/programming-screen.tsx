@@ -427,7 +427,9 @@ export function ProgrammingScreen({
     turnoverMinutes: number;
   }) =>
     window.confirm(
-      `Hay menos de ${conflict.turnoverMinutes} minutos entre sesiones. Anterior termina a las ${conflict.previousEndsAt}. Con ${conflict.turnoverMinutes} min de margen, esta sesión debería empezar a partir de las ${conflict.minimumStartAt}. Margen real: ${conflict.actualGapMinutes} min. ¿Quieres guardar igualmente?`
+      conflict.actualGapMinutes < 0
+        ? `Esta sesión se solapa ${Math.abs(conflict.actualGapMinutes)} min con la anterior. La anterior termina a las ${conflict.previousEndsAt}. ¿Quieres guardar igualmente?`
+        : `Hay menos de ${conflict.turnoverMinutes} minutos entre sesiones. Anterior termina a las ${conflict.previousEndsAt}. Con ${conflict.turnoverMinutes} min de margen, esta sesión debería empezar a partir de las ${conflict.minimumStartAt}. Margen real: ${conflict.actualGapMinutes} min. ¿Quieres guardar igualmente?`
     );
 
   const getConflictsInvolvingMovie = (
