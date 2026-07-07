@@ -21,6 +21,9 @@ import { ScreeningGapInfo, TimelineScreeningLayout } from "@/lib/schedule/timeli
 import { MoviePicker } from "@/components/movies/movie-picker";
 import { MovieDraft } from "@/components/movies/types";
 
+const MIN_SCREENING_CARD_HEIGHT = 104;
+const MIN_CONFLICT_SCREENING_CARD_HEIGHT = 132;
+
 type ScreeningCardProps = {
   accentColor: string;
   gapInfo: ScreeningGapInfo | null;
@@ -73,7 +76,11 @@ export function ScreeningCard({
   );
   const movie = movies.find((item) => item.id === screening.movieId);
   const endTime = getScreeningEndTime(screening, movies);
-  const cardHeight = timelineLayout?.height ?? 120;
+  const baseCardHeight = timelineLayout?.height ?? 120;
+  const cardHeight = Math.max(
+    baseCardHeight,
+    turnoverConflict ? MIN_CONFLICT_SCREENING_CARD_HEIGHT : MIN_SCREENING_CARD_HEIGHT
+  );
   const isCompactCard = cardHeight < 112;
   const isTightCard = cardHeight < 88;
 
@@ -182,7 +189,7 @@ export function ScreeningCard({
       onClick={handleCardClick}
       onPointerDown={handleCardPointerDown}
       style={{
-        height: timelineLayout?.height,
+        height: cardHeight,
         top: timelineLayout?.top
       }}
       className={clsx(
@@ -243,7 +250,7 @@ export function ScreeningCard({
           isCompactCard ? "mt-0.5 py-0" : "mt-1 py-0.5"
         )}
         onClick={() => setIsEditingMovie((current) => !current)}
-        title="Seleccionar pelicula"
+        title="Seleccionar película"
       >
         <span
           className={clsx(
@@ -270,17 +277,16 @@ export function ScreeningCard({
 
       {turnoverConflict && !isTightCard ? (
         <p className="mt-0.5 shrink-0 text-center text-[10px] leading-tight text-red-200">
-          Menos de {turnoverConflict.turnoverMinutes} min. Minimo{" "}
+          Menos de {turnoverConflict.turnoverMinutes} min. Mínimo{" "}
           {turnoverConflict.minimumStartAt}. Margen real {turnoverConflict.actualGapMinutes} min.
         </p>
       ) : null}
 
-      <div className="mt-auto flex shrink-0 items-center justify-center gap-1 text-[10px] leading-none">
-        {endTime ? <span className="truncate text-zinc-400">Fin {endTime}</span> : null}
+      <div className="mt-auto flex shrink-0 flex-wrap items-center justify-center gap-x-1 gap-y-0.5 text-center text-[10px] leading-tight">
+        {endTime ? <span className="text-zinc-400">Fin {endTime}</span> : null}
         {gapInfo ? (
           <span
             className={clsx(
-              "truncate",
               gapInfo.kind === "gap" && "text-zinc-500",
               gapInfo.kind === "tight" && "text-yellow-200",
               gapInfo.kind === "overlap" && "text-red-200"
@@ -290,7 +296,7 @@ export function ScreeningCard({
             {gapInfo.label}
           </span>
         ) : null}
-        {status === "invalid" ? <span className="text-red-300">Hora invalida</span> : null}
+        {status === "invalid" ? <span className="text-red-300">Hora inválida</span> : null}
       </div>
 
       {isEditingMovie ? (

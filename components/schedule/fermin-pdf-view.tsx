@@ -21,7 +21,7 @@ export function FerminPdfView({ movies, screenings, weekStart }: FerminPdfViewPr
   return (
     <section className="print-only fermin-print-view">
       <header className="fermin-print-header">
-        <p>CINES BABEL — PDF FERMÍN</p>
+        <p>CINES BABEL — PDF películas y sesiones</p>
         <span>Semana: {weekLabel}</span>
       </header>
 

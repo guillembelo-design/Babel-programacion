@@ -407,7 +407,7 @@ export function ProgrammingScreen({
     if (!isValidScreeningTime(screening.startsAt)) {
       setState((current) => ({ ...current, screenings: nextScreenings }));
       setSaveState("error");
-      setSaveError("Hora no valida. Usa HH:mm.");
+      setSaveError("Hora no válida. Usa HH:mm.");
       return false;
     }
 
@@ -487,7 +487,7 @@ export function ProgrammingScreen({
       if (!draggedScreening) return;
       if (replacementScreening?.id === draggedScreening.id) return;
       if (drop.targetScreeningId && !replacementScreening) {
-        showDragNotice("No cabe ahi");
+        showDragNotice("No cabe ahí");
         return;
       }
 
@@ -536,7 +536,7 @@ export function ProgrammingScreen({
         );
 
         if (conflicts.length) {
-          showDragNotice("No cabe ahi");
+          showDragNotice("No cabe ahí");
           return;
         }
       }
@@ -591,7 +591,7 @@ export function ProgrammingScreen({
         : null;
 
       if (drop.targetScreeningId && !replacementScreening) {
-        showDragNotice("No cabe ahi");
+        showDragNotice("No cabe ahí");
         return;
       }
 
@@ -626,7 +626,7 @@ export function ProgrammingScreen({
         );
 
         if (conflicts.length) {
-          showDragNotice("No cabe ahi");
+          showDragNotice("No cabe ahí");
           return;
         }
       }
@@ -1044,13 +1044,13 @@ export function ProgrammingScreen({
 
     if (!targetDistributor) {
       setSaveState("error");
-      setSaveError("Elige una distribuidora destino valida.");
+      setSaveError("Elige una distribuidora destino válida.");
       return;
     }
 
     const usageCount = distributorMovieCounts.get(sourceDistributor.id) ?? 0;
     const confirmed = window.confirm(
-      `Fusionar "${sourceDistributor.name}" en "${targetDistributor.name}". Se moveran ${usageCount} peliculas y se borrara la distribuidora origen.`
+      `Fusionar "${sourceDistributor.name}" en "${targetDistributor.name}". Se moverán ${usageCount} películas y se borrará la distribuidora origen.`
     );
 
     if (!confirmed) return;
@@ -1451,7 +1451,7 @@ export function ProgrammingScreen({
                 onClick={() => printSchedule("fermin")}
               >
                 <FileText size={16} />
-                PDF Fermín
+                PDF películas y sesiones
               </button>
             </div>
           </div>
@@ -1466,7 +1466,7 @@ export function ProgrammingScreen({
               )}
             >
               {invalidTimeCount
-                ? `${invalidTimeCount} horas no validas`
+                ? `${invalidTimeCount} horas no válidas`
                 : conflictCount
                   ? `${conflictCount} conflictos`
                   : "Sin conflictos"}
@@ -1571,7 +1571,7 @@ export function ProgrammingScreen({
                             {roomDropTarget.status === "replace"
                               ? "Reemplazar"
                               : roomDropTarget.status === "invalid"
-                                ? "No cabe ahi"
+                                ? "No cabe ahí"
                                 : roomDropTarget.startsAt}
                           </div>
                         ) : null}

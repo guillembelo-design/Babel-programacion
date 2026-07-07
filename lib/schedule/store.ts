@@ -435,7 +435,7 @@ export async function saveScreening(screening: Screening) {
     },
     { onConflict: "id" }
   );
-  assertSupabaseResult(error, "No se pudo guardar la sesion");
+  assertSupabaseResult(error, "No se pudo guardar la sesión");
   saveLocalScreening(screening);
 }
 
@@ -446,7 +446,7 @@ export async function deleteScreening(screeningId: string) {
   }
 
   const { error } = await supabase.from("screenings").delete().eq("id", screeningId);
-  assertSupabaseResult(error, "No se pudo eliminar la sesion");
+  assertSupabaseResult(error, "No se pudo eliminar la sesión");
   deleteLocalScreening(screeningId);
 }
 

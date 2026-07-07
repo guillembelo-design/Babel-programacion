@@ -337,7 +337,7 @@ export function useScreeningDragAndDrop({
       if (!dropTarget) return;
 
       if (dropTarget.status === "invalid") {
-        onBlockedDrop("No cabe ahi");
+        onBlockedDrop("No cabe ahí");
         return;
       }
 
@@ -377,7 +377,7 @@ export function useScreeningDragAndDrop({
       }
 
       if (dropTarget.status === "invalid") {
-        onBlockedDrop("No cabe ahi");
+        onBlockedDrop("No cabe ahí");
         setPasteState({
           clientX: event.clientX,
           clientY: event.clientY,
