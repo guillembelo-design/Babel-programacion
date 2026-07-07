@@ -89,6 +89,7 @@ import {
   ScreeningPasteResult,
   useScreeningDragAndDrop
 } from "./use-screening-drag-and-drop";
+import { useSchedulePresence } from "./use-schedule-presence";
 import { useScheduleRealtime } from "./use-schedule-realtime";
 import { useUndoableScreenings } from "./use-undoable-screenings";
 import { FerminPdfView } from "./fermin-pdf-view";
@@ -157,6 +158,7 @@ export function ProgrammingScreen({
   const persistedScreeningsRef = useRef<Screening[]>([]);
   const stateRef = useRef(state);
   const weeklyMovieIdsRef = useRef(weeklyMovieIds);
+  const { otherClientCount, sameWeekClientCount } = useSchedulePresence(weekStart);
 
   const rememberPersistedScreenings = useCallback((screenings: Screening[]) => {
     persistedScreeningsRef.current = [...screenings].sort(compareScreeningStartTimes);
@@ -1300,6 +1302,7 @@ export function ProgrammingScreen({
     ? state.movies.find((movie) => movie.id === placementScreening.movieId)
     : null;
   const isPasteMode = Boolean(pasteState && copiedScreening);
+  const presenceNotice = getPresenceNotice(otherClientCount, sameWeekClientCount);
 
   return (
     <>
@@ -1321,6 +1324,12 @@ export function ProgrammingScreen({
               saveError={saveError}
               saveState={saveState}
             />
+            {presenceNotice ? (
+              <span className="inline-flex h-10 animate-pulse items-center gap-1.5 rounded-md border border-amber-400/70 bg-amber-300/15 px-3 text-xs font-semibold text-amber-100 shadow-[0_0_22px_rgba(251,191,36,0.18)]">
+                <span aria-hidden="true">⚠️</span>
+                {presenceNotice}
+              </span>
+            ) : null}
             <button
               className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300 transition hover:border-zinc-500 hover:bg-babel-card hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600"
               onClick={() => void undoLastSessionAction()}
@@ -1825,6 +1834,26 @@ function areStringListsEqual(left: string[], right: string[]) {
 
   const rightSet = new Set(right);
   return left.every((item) => rightSet.has(item));
+}
+
+function getPresenceNotice(otherClientCount: number, sameWeekClientCount: number) {
+  if (sameWeekClientCount === 1) {
+    return "Otro usuario en esta semana";
+  }
+
+  if (sameWeekClientCount > 1) {
+    return `${sameWeekClientCount + 1} usuarios en esta semana`;
+  }
+
+  if (otherClientCount === 1) {
+    return "Otro usuario activo";
+  }
+
+  if (otherClientCount > 1) {
+    return `${otherClientCount + 1} usuarios activos`;
+  }
+
+  return "";
 }
 
 function getErrorMessage(error: unknown) {
