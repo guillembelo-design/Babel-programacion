@@ -15,14 +15,14 @@ export function StatusBadge({ isConfigured, saveError, saveState }: StatusBadgeP
     saveState === "saving"
       ? "Guardando"
       : saveState === "error"
-        ? "Error al guardar"
+        ? saveError || "Error al guardar"
         : isConfigured
           ? "Supabase guardado"
           : "Local guardado";
 
   return (
     <div
-      className="inline-flex h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 text-xs text-zinc-300"
+      className="inline-flex min-h-10 items-center gap-2 rounded-md border border-babel-line bg-babel-panel px-3 py-2 text-xs text-zinc-300"
       title={saveError}
     >
       <span
