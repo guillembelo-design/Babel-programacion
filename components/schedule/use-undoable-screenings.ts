@@ -47,6 +47,11 @@ export function useUndoableScreenings({
     [cloneScreenings]
   );
 
+  const clearUndoStack = useCallback(() => {
+    setUndoStack([]);
+    setUndoNotice("");
+  }, []);
+
   const restoreScreeningsSnapshot = useCallback(
     async (targetScreenings: Screening[]) => {
       const previousScreenings = screenings;
@@ -151,6 +156,7 @@ export function useUndoableScreenings({
 
   return {
     canUndo: Boolean(undoStack.length) && saveState !== "saving",
+    clearUndoStack,
     pushUndoSnapshot,
     undoLastSessionAction,
     undoNotice

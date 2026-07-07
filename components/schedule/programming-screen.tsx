@@ -89,6 +89,7 @@ import {
   ScreeningPasteResult,
   useScreeningDragAndDrop
 } from "./use-screening-drag-and-drop";
+import { useScheduleRealtime } from "./use-schedule-realtime";
 import { useUndoableScreenings } from "./use-undoable-screenings";
 import { FerminPdfView } from "./fermin-pdf-view";
 import { WeeklyPrintView } from "./weekly-print-view";
@@ -141,6 +142,7 @@ export function ProgrammingScreen({
   const [selectedScreeningId, setSelectedScreeningId] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState("");
   const [dragNotice, setDragNotice] = useState("");
+  const [realtimeNotice, setRealtimeNotice] = useState("");
   const [isDistributorPanelOpen, setIsDistributorPanelOpen] = useState(true);
   const [editingDistributorId, setEditingDistributorId] = useState<string | null>(null);
   const [distributorRenameDraft, setDistributorRenameDraft] = useState("");
@@ -153,10 +155,20 @@ export function ProgrammingScreen({
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveError, setSaveError] = useState("");
   const persistedScreeningsRef = useRef<Screening[]>([]);
+  const stateRef = useRef(state);
+  const weeklyMovieIdsRef = useRef(weeklyMovieIds);
 
   const rememberPersistedScreenings = useCallback((screenings: Screening[]) => {
     persistedScreeningsRef.current = [...screenings].sort(compareScreeningStartTimes);
   }, []);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    weeklyMovieIdsRef.current = weeklyMovieIds;
+  }, [weeklyMovieIds]);
 
   useEffect(() => {
     let mounted = true;
@@ -219,6 +231,13 @@ export function ProgrammingScreen({
     const timeoutId = window.setTimeout(() => setCopyNotice(""), 2200);
     return () => window.clearTimeout(timeoutId);
   }, [copyNotice]);
+
+  useEffect(() => {
+    if (!realtimeNotice) return;
+
+    const timeoutId = window.setTimeout(() => setRealtimeNotice(""), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [realtimeNotice]);
 
   useEffect(() => {
     const handleAfterPrint = () => setPrintMode("weekly");
@@ -306,7 +325,25 @@ export function ProgrammingScreen({
     });
   };
 
-  const { canUndo, pushUndoSnapshot, undoLastSessionAction, undoNotice } =
+  const reloadVisibleWeekFromRealtime = useCallback(async () => {
+    const [loadedState, loadedWeeklyMovieIds] = await Promise.all([
+      loadScheduleForWeek(weekStart),
+      loadWeeklyMoviesForWeek(weekStart)
+    ]);
+    const hasChanged =
+      !areScreeningListsEqual(stateRef.current.screenings, loadedState.screenings) ||
+      !areStringListsEqual(weeklyMovieIdsRef.current, loadedWeeklyMovieIds);
+
+    stateRef.current = loadedState;
+    weeklyMovieIdsRef.current = loadedWeeklyMovieIds;
+    rememberPersistedScreenings(loadedState.screenings);
+    setState(loadedState);
+    setWeeklyMovieIds(loadedWeeklyMovieIds);
+
+    return hasChanged;
+  }, [rememberPersistedScreenings, weekStart]);
+
+  const { canUndo, clearUndoStack, pushUndoSnapshot, undoLastSessionAction, undoNotice } =
     useUndoableScreenings({
       persistedScreeningsRef,
       rememberPersistedScreenings,
@@ -316,6 +353,22 @@ export function ProgrammingScreen({
       setState,
       weekStart
     });
+
+  const { broadcastWeeklyMoviesChanged } = useScheduleRealtime({
+    onError: (error) => {
+      setSaveState("error");
+      setSaveError(getErrorMessage(error));
+    },
+    onReload: reloadVisibleWeekFromRealtime,
+    onRemoteChange: ({ notify = true } = {}) => {
+      clearUndoStack();
+      if (notify) {
+        setRealtimeNotice("Programación actualizada");
+      }
+    },
+    screenings: state.screenings,
+    weekStart
+  });
 
   const addMovieToWeek = async (movieId: string) => {
     if (weeklyMovieIds.includes(movieId)) return;
@@ -328,7 +381,10 @@ export function ProgrammingScreen({
 
     if (!saved) {
       setWeeklyMovieIds(previousWeeklyMovieIds);
+      return;
     }
+
+    void broadcastWeeklyMoviesChanged();
   };
 
   const removeMovieFromWeek = async (movieId: string) => {
@@ -340,7 +396,10 @@ export function ProgrammingScreen({
 
     if (!saved) {
       setWeeklyMovieIds(previousWeeklyMovieIds);
+      return;
     }
+
+    void broadcastWeeklyMoviesChanged();
   };
 
   const showDragNotice = useCallback((message: string) => {
@@ -1281,6 +1340,11 @@ export function ProgrammingScreen({
                 {copyNotice}
               </span>
             ) : null}
+            {realtimeNotice ? (
+              <span className="inline-flex h-10 items-center rounded-md border border-sky-500/25 bg-sky-950/25 px-3 text-xs text-sky-100">
+                {realtimeNotice}
+              </span>
+            ) : null}
             {isPasteMode && placementMovie ? (
               <span className="inline-flex h-10 items-center rounded-md border border-green-500/25 bg-green-950/25 px-3 text-xs text-green-100">
                 Pegando: {placementMovie.title} · Esc para cancelar
@@ -1736,6 +1800,31 @@ function upsertDistributor(distributors: Distributor[], distributor: Distributor
     ...distributors.filter((item) => item.id !== distributor.id),
     distributor
   ].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function areScreeningListsEqual(left: Screening[], right: Screening[]) {
+  if (left.length !== right.length) return false;
+
+  const leftById = new Map(left.map((screening) => [screening.id, screening]));
+
+  return right.every((rightScreening) => {
+    const leftScreening = leftById.get(rightScreening.id);
+
+    return (
+      leftScreening?.weekStart === rightScreening.weekStart &&
+      leftScreening.day === rightScreening.day &&
+      leftScreening.roomId === rightScreening.roomId &&
+      leftScreening.movieId === rightScreening.movieId &&
+      leftScreening.startsAt === rightScreening.startsAt
+    );
+  });
+}
+
+function areStringListsEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+
+  const rightSet = new Set(right);
+  return left.every((item) => rightSet.has(item));
 }
 
 function getErrorMessage(error: unknown) {
