@@ -39,6 +39,7 @@ type DatabaseScreening = {
   room_id: string;
   movie_id: string | null;
   starts_at: string;
+  session_label: string | null;
 };
 
 type DatabaseWeeklyMovie = {
@@ -69,7 +70,8 @@ const mapScreeningFromDatabase = (screening: DatabaseScreening): Screening => ({
   day: screening.day,
   roomId: screening.room_id,
   movieId: screening.movie_id,
-  startsAt: screening.starts_at.slice(0, 5)
+  startsAt: screening.starts_at.slice(0, 5),
+  sessionLabel: normalizeOptionalText(screening.session_label)
 });
 
 const mapWeeklyMovieFromDatabase = (weeklyMovie: DatabaseWeeklyMovie): WeeklyMovie => ({
@@ -77,6 +79,11 @@ const mapWeeklyMovieFromDatabase = (weeklyMovie: DatabaseWeeklyMovie): WeeklyMov
   weekStart: weeklyMovie.week_start,
   movieId: weeklyMovie.movie_id
 });
+
+function normalizeOptionalText(value: string | null | undefined) {
+  const normalizedValue = value?.trim() ?? "";
+  return normalizedValue || null;
+}
 
 export async function loadScheduleForWeek(weekStart: string): Promise<ScheduleState> {
   if (!supabase) {
@@ -96,7 +103,7 @@ export async function loadScheduleForWeek(weekStart: string): Promise<ScheduleSt
     supabase.from("distributors").select("id,name,normalized_name").order("name"),
     supabase
       .from("screenings")
-      .select("id,week_start,day,room_id,movie_id,starts_at")
+      .select("id,week_start,day,room_id,movie_id,starts_at,session_label")
       .eq("week_start", weekStart)
       .order("starts_at")
   ]);
@@ -127,7 +134,7 @@ export async function loadScreeningsForWeek(weekStart: string) {
 
   const { data, error } = await supabase
     .from("screenings")
-    .select("id,week_start,day,room_id,movie_id,starts_at")
+    .select("id,week_start,day,room_id,movie_id,starts_at,session_label")
     .eq("week_start", weekStart)
     .order("starts_at");
 
@@ -431,7 +438,8 @@ export async function saveScreening(screening: Screening) {
       day: screening.day,
       room_id: screening.roomId,
       movie_id: screening.movieId,
-      starts_at: screening.startsAt
+      starts_at: screening.startsAt,
+      session_label: normalizeOptionalText(screening.sessionLabel)
     },
     { onConflict: "id" }
   );

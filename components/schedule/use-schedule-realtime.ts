@@ -313,7 +313,8 @@ function screeningMatchesRecord(screening: Screening, record: RealtimeRecord | u
     screening.day === getString(record, "day") &&
     screening.roomId === getString(record, "room_id") &&
     screening.movieId === getNullableString(record, "movie_id") &&
-    screening.startsAt === normalizeTime(getString(record, "starts_at"))
+    screening.startsAt === normalizeTime(getString(record, "starts_at")) &&
+    (screening.sessionLabel ?? null) === getNullableString(record, "session_label")
   );
 }
 

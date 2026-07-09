@@ -11,7 +11,7 @@ type MovieScheduleGroup = {
   id: string;
   movie: Movie | null;
   title: string;
-  hoursByDay: Record<WeekdayKey, string[]>;
+  hoursByDay: Record<WeekdayKey, Array<{ sessionLabel: string; startsAt: string }>>;
 };
 
 export function FerminPdfView({ movies, screenings, weekStart }: FerminPdfViewProps) {
@@ -49,7 +49,7 @@ export function FerminPdfView({ movies, screenings, weekStart }: FerminPdfViewPr
                   </td>
                   {WEEKDAYS.map((day) => (
                     <td key={day.key} className="fermin-print-hours-cell">
-                      {group.hoursByDay[day.key].join(" · ")}
+                      {group.hoursByDay[day.key].map(formatSessionSlot).join(" · ")}
                     </td>
                   ))}
                 </tr>
@@ -81,7 +81,7 @@ function getMovieScheduleGroups({
         ...accumulator,
         [day.key]: []
       }),
-      {} as Record<WeekdayKey, string[]>
+      {} as MovieScheduleGroup["hoursByDay"]
     );
 
   screenings
@@ -100,7 +100,10 @@ function getMovieScheduleGroups({
         } satisfies MovieScheduleGroup);
 
       if (screening.startsAt) {
-        group.hoursByDay[screening.day].push(screening.startsAt);
+        group.hoursByDay[screening.day].push({
+          sessionLabel: screening.sessionLabel?.trim() ?? "",
+          startsAt: screening.startsAt
+        });
       }
 
       groupsByMovieId.set(groupId, group);
@@ -112,11 +115,11 @@ function getMovieScheduleGroups({
       hoursByDay: WEEKDAYS.reduce(
         (accumulator, day) => ({
           ...accumulator,
-          [day.key]: [...group.hoursByDay[day.key]].sort((timeA, timeB) =>
-            timeA.localeCompare(timeB)
+          [day.key]: [...group.hoursByDay[day.key]].sort((slotA, slotB) =>
+            slotA.startsAt.localeCompare(slotB.startsAt)
           )
         }),
-        {} as Record<WeekdayKey, string[]>
+        {} as MovieScheduleGroup["hoursByDay"]
       )
     }))
     .sort((groupA, groupB) => {
@@ -140,4 +143,8 @@ function getMovieMeta(movie: Movie | null) {
 
 function getCompactDayNumber(weekStart: string, offset: number) {
   return getDayDateLabel(weekStart, offset).split(" ")[0];
+}
+
+function formatSessionSlot(slot: { sessionLabel: string; startsAt: string }) {
+  return slot.sessionLabel ? `${slot.startsAt} (${slot.sessionLabel})` : slot.startsAt;
 }

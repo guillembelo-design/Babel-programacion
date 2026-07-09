@@ -50,6 +50,7 @@ create table if not exists public.screenings (
   room_id text not null references public.rooms(id) on delete cascade,
   movie_id uuid references public.movies(id) on delete set null,
   starts_at time not null,
+  session_label text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

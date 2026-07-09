@@ -27,6 +27,7 @@ export type Screening = {
   roomId: string;
   movieId: string | null;
   startsAt: string;
+  sessionLabel: string | null;
 };
 
 export type WeeklyMovie = {

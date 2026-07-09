@@ -83,6 +83,11 @@ export function WeeklyPrintView({
                               {endTime ? ` · Fin ${endTime}` : ""}
                               {movie?.director ? ` · Director/a: ${movie.director}` : ""}
                             </p>
+                            {screening.sessionLabel ? (
+                              <p className="weekly-print-session-label">
+                                {screening.sessionLabel}
+                              </p>
+                            ) : null}
                             {conflict ? (
                               <p className="weekly-print-conflict">
                                 CONFLICTO ·{" "}

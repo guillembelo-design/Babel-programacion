@@ -508,6 +508,7 @@ export function ProgrammingScreen({
       day: activeDay,
       roomId: room.id,
       movieId: null,
+      sessionLabel: null,
       startsAt: getNextScreeningStartTime({
         day: activeDay,
         movies: state.movies,
@@ -1865,7 +1866,8 @@ function areScreeningListsEqual(left: Screening[], right: Screening[]) {
       leftScreening.day === rightScreening.day &&
       leftScreening.roomId === rightScreening.roomId &&
       leftScreening.movieId === rightScreening.movieId &&
-      leftScreening.startsAt === rightScreening.startsAt
+      leftScreening.startsAt === rightScreening.startsAt &&
+      (leftScreening.sessionLabel ?? null) === (rightScreening.sessionLabel ?? null)
     );
   });
 }
