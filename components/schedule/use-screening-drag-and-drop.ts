@@ -55,7 +55,6 @@ type DropMode = "move" | "copy";
 type UseScreeningDragAndDropParams = {
   activeDay: WeekdayKey;
   movies: Movie[];
-  onBlockedDrop: (message: string) => void;
   onCopyNotice: (message: string) => void;
   onDrop: (drop: ScreeningDropResult) => void | Promise<void>;
   onPaste: (drop: ScreeningPasteResult) => void | Promise<void>;
@@ -70,7 +69,6 @@ type UseScreeningDragAndDropParams = {
 export function useScreeningDragAndDrop({
   activeDay,
   movies,
-  onBlockedDrop,
   onCopyNotice,
   onDrop,
   onPaste,
@@ -336,11 +334,6 @@ export function useScreeningDragAndDrop({
 
       if (!dropTarget) return;
 
-      if (dropTarget.status === "invalid") {
-        onBlockedDrop("No cabe ahí");
-        return;
-      }
-
       void onDrop({
         ...dropTarget,
         screeningId: activeDrag.screening.id
@@ -356,7 +349,7 @@ export function useScreeningDragAndDrop({
       window.removeEventListener("pointerup", finishDrag);
       window.removeEventListener("pointercancel", finishDrag);
     };
-  }, [getDropTarget, onBlockedDrop, onDrop, onSelectScreening]);
+  }, [getDropTarget, onDrop, onSelectScreening]);
 
   useEffect(() => {
     const handlePasteClick = (event: MouseEvent) => {
@@ -373,16 +366,6 @@ export function useScreeningDragAndDrop({
 
       if (!dropTarget) {
         setPasteState(null);
-        return;
-      }
-
-      if (dropTarget.status === "invalid") {
-        onBlockedDrop("No cabe ahí");
-        setPasteState({
-          clientX: event.clientX,
-          clientY: event.clientY,
-          dropTarget
-        });
         return;
       }
 
@@ -406,7 +389,7 @@ export function useScreeningDragAndDrop({
       window.removeEventListener("click", handlePasteClick, true);
       window.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [getDropTarget, onBlockedDrop, onPaste]);
+  }, [getDropTarget, onPaste]);
 
   useEffect(() => {
     activeDragRef.current = null;

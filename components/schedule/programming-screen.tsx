@@ -610,19 +610,6 @@ export function ProgrammingScreen({
         movedScreening
       ].sort(compareScreeningStartTimes);
 
-      if (!replacementScreening) {
-        const conflicts = getTurnoverConflicts(nextScreenings, state.movies, turnoverMinutes).filter(
-          (conflict) =>
-            conflict.previousScreeningId === movedScreening.id ||
-            conflict.currentScreeningId === movedScreening.id
-        );
-
-        if (conflicts.length) {
-          showDragNotice("No cabe ahí");
-          return;
-        }
-      }
-
       setState((current) => ({ ...current, screenings: nextScreenings }));
 
       const saved = await runSaving(async () => {
@@ -707,19 +694,6 @@ export function ProgrammingScreen({
         pastedScreening
       ].sort(compareScreeningStartTimes);
 
-      if (!replacementScreening) {
-        const conflicts = getTurnoverConflicts(nextScreenings, state.movies, turnoverMinutes).filter(
-          (conflict) =>
-            conflict.previousScreeningId === pastedScreening.id ||
-            conflict.currentScreeningId === pastedScreening.id
-        );
-
-        if (conflicts.length) {
-          showDragNotice("No cabe ahí");
-          return;
-        }
-      }
-
       setState((current) => ({ ...current, screenings: nextScreenings }));
 
       const saved = await runSaving(async () => {
@@ -771,7 +745,6 @@ export function ProgrammingScreen({
     useScreeningDragAndDrop({
       activeDay,
       movies: state.movies,
-      onBlockedDrop: showDragNotice,
       onCopyNotice: setCopyNotice,
       onDrop: persistDraggedScreeningDrop,
       onPaste: persistPastedScreeningDrop,
@@ -1686,7 +1659,7 @@ export function ProgrammingScreen({
                             {roomDropTarget.status === "replace"
                               ? "Reemplazar"
                               : roomDropTarget.status === "invalid"
-                                ? "No cabe ahí"
+                                ? "Conflicto"
                                 : roomDropTarget.startsAt}
                           </div>
                         ) : null}
@@ -1713,6 +1686,13 @@ export function ProgrammingScreen({
                               state.movies,
                               timelineRange
                             );
+                            const nextTimelineLayout = nextScreening
+                              ? getScreeningTimelineLayout(nextScreening, state.movies, timelineRange)
+                              : null;
+                            const maxTimelineHeight =
+                              timelineLayout && nextTimelineLayout
+                                ? Math.max(0, nextTimelineLayout.top - timelineLayout.top - 6)
+                                : null;
 
                             return (
                               <ScreeningCard
@@ -1727,6 +1707,7 @@ export function ProgrammingScreen({
                                 gapInfo={gapInfo}
                                 isDragging={dragState?.screeningId === screening.id}
                                 isSelected={selectedScreeningId === screening.id}
+                                maxTimelineHeight={maxTimelineHeight}
                                 movies={state.movies}
                                 screening={screening}
                                 screenings={weekScreenings}

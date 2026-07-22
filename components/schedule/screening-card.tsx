@@ -35,6 +35,7 @@ const SESSION_LABEL_PRESETS = [
 type ScreeningCardProps = {
   accentColor: string;
   gapInfo: ScreeningGapInfo | null;
+  maxTimelineHeight: number | null;
   screening: Screening;
   screenings: Screening[];
   distributors: Distributor[];
@@ -54,6 +55,7 @@ type ScreeningCardProps = {
 export function ScreeningCard({
   accentColor,
   gapInfo,
+  maxTimelineHeight,
   screening,
   screenings,
   distributors,
@@ -88,12 +90,17 @@ export function ScreeningCard({
   const movie = movies.find((item) => item.id === screening.movieId);
   const endTime = getScreeningEndTime(screening, movies);
   const baseCardHeight = timelineLayout?.height ?? 120;
-  const cardHeight = Math.max(
+  const desiredCardHeight = Math.max(
     baseCardHeight,
     turnoverConflict || sessionLabel ? MIN_CONFLICT_SCREENING_CARD_HEIGHT : MIN_SCREENING_CARD_HEIGHT
   );
+  const cardHeight =
+    maxTimelineHeight === null
+      ? desiredCardHeight
+      : Math.max(0, Math.min(desiredCardHeight, maxTimelineHeight));
   const isCompactCard = cardHeight < 112;
   const isTightCard = cardHeight < 88;
+  const isUltraCompactCard = cardHeight < 64;
 
   useEffect(() => {
     if (!screening.movieId) {
@@ -265,7 +272,7 @@ export function ScreeningCard({
           onKeyDown={handleTimeKeyDown}
           className={clsx(
             "rounded-md border bg-zinc-950/40 px-1 text-center font-semibold tabular-nums text-white outline-none transition",
-            isCompactCard ? "h-6 w-[56px] text-sm" : "h-7 w-[62px] text-base",
+            isCompactCard ? "h-6 w-[54px] text-sm" : "h-7 w-[62px] text-base",
             timeError || status === "invalid"
               ? "border-red-500 focus:border-red-400"
               : "border-babel-line focus:border-babel-red"
@@ -387,9 +394,12 @@ export function ScreeningCard({
         ) : null}
       </button>
 
-      {sessionLabel ? (
+      {sessionLabel && !isUltraCompactCard ? (
         <button
-          className="mx-auto mt-1 max-w-full shrink-0 truncate rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em] text-zinc-100 transition hover:border-white/30 hover:bg-white/15"
+          className={clsx(
+            "mx-auto max-w-full shrink-0 truncate rounded-full border border-white/15 bg-white/10 px-2 py-0.5 font-semibold uppercase tracking-[0.05em] text-zinc-100 transition hover:border-white/30 hover:bg-white/15",
+            isCompactCard ? "mt-0.5 text-[9px] leading-none" : "mt-1 text-[10px]"
+          )}
           onClick={() => {
             setLabelDraft(screening.sessionLabel ?? "");
             setIsEditingLabel(true);
@@ -406,11 +416,11 @@ export function ScreeningCard({
         </p>
       ) : null}
 
-      {turnoverConflict && !isTightCard ? (
-        <p className="mt-0.5 shrink-0 text-center text-[10px] leading-tight text-red-200">
+      {turnoverConflict && !isUltraCompactCard ? (
+        <p className="mt-0.5 shrink-0 truncate text-center text-[10px] leading-tight text-red-200">
           {turnoverConflict.actualGapMinutes < 0
-            ? `Solapa ${Math.abs(turnoverConflict.actualGapMinutes)} min. Anterior termina a las ${turnoverConflict.previousEndsAt}.`
-            : `Menos de ${turnoverConflict.turnoverMinutes} min. Mínimo ${turnoverConflict.minimumStartAt}. Margen real ${turnoverConflict.actualGapMinutes} min.`}
+            ? `Solapa ${Math.abs(turnoverConflict.actualGapMinutes)} min · fin ${turnoverConflict.previousEndsAt}`
+            : `Menos de ${turnoverConflict.turnoverMinutes} min · mínimo ${turnoverConflict.minimumStartAt}`}
         </p>
       ) : null}
 
