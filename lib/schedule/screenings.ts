@@ -5,6 +5,7 @@ export const DEFAULT_FIRST_SCREENING_TIME = "16:00";
 export const PREFERRED_SCREENING_START_TIMES = ["16:00", "18:00", "20:00", "22:00"] as const;
 
 const SCREENING_START_ROUNDING_MINUTES = 5;
+const PREFERRED_START_GRACE_MINUTES = 5;
 
 export function getNextScreeningStartTime({
   day,
@@ -56,7 +57,7 @@ export function getNextScreeningStartTime({
 
   if (
     nextPreferredStart !== undefined &&
-    nextPreferredStart >= lastValidScreening.nextStartMinutes
+    nextPreferredStart + PREFERRED_START_GRACE_MINUTES >= lastValidScreening.nextStartMinutes
   ) {
     return formatMinutesAsTime(nextPreferredStart);
   }
