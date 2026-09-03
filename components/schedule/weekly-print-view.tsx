@@ -33,24 +33,27 @@ export function WeeklyPrintView({
 }: WeeklyPrintViewProps) {
   const weekScreenings = screenings.filter((screening) => screening.weekStart === weekStart);
   const weekLabel = getWeekLabel(weekStart);
+  const roomColumnCount = Math.max(rooms.length, 1);
 
   return (
     <section className="print-only weekly-print-view">
-      <header className="weekly-print-header">
-        <p>CINES BABEL — PROGRAMACIÓN SEMANAL · {weekLabel}</p>
-        <span>Viernes a jueves</span>
-      </header>
-
       {WEEKDAYS.map((day, dayIndex) => (
         <section key={day.key} className="weekly-print-day">
-          <p className="weekly-print-day-context">
-            CINES BABEL — PROGRAMACIÓN SEMANAL · {weekLabel}
-          </p>
-          <h2>
-            {PRINT_DAY_LABELS[day.key].toUpperCase()} · {getDayDateLabel(weekStart, dayIndex)}
-          </h2>
+          <header className="weekly-print-page-header">
+            <div className="weekly-print-brand">
+              <strong>CINES BABEL</strong>
+              <span>Programación semanal · {weekLabel}</span>
+            </div>
+            <div className="weekly-print-date">
+              <strong>{PRINT_DAY_LABELS[day.key]}</strong>
+              <span>{getDayDateLabel(weekStart, dayIndex)}</span>
+            </div>
+          </header>
 
-          <div className="weekly-print-grid">
+          <div
+            className="weekly-print-grid"
+            style={{ gridTemplateColumns: `repeat(${roomColumnCount}, minmax(0, 1fr))` }}
+          >
             {rooms.map((room) => {
               const roomScreenings = weekScreenings
                 .filter((screening) => screening.day === day.key && screening.roomId === room.id)
@@ -61,7 +64,12 @@ export function WeeklyPrintView({
                   <h3>{room.name}</h3>
 
                   {roomScreenings.length ? (
-                    <div className="weekly-print-sessions">
+                    <div
+                      className="weekly-print-sessions"
+                      style={{
+                        gridTemplateRows: `repeat(${roomScreenings.length}, minmax(0, 1fr))`
+                      }}
+                    >
                       {roomScreenings.map((screening) => {
                         const movie = movies.find((item) => item.id === screening.movieId);
                         const endTime = getScreeningEndTime(screening, movies);
@@ -74,11 +82,11 @@ export function WeeklyPrintView({
 
                         return (
                           <div key={screening.id} className="weekly-print-session">
-                            <div className="weekly-print-session-main">
-                              <strong>{screening.startsAt || "--:--"}</strong>
-                              <span>{movie?.title ?? "Película pendiente"}</span>
-                            </div>
-                            <p>
+                            <strong className="weekly-print-session-time">
+                              {screening.startsAt || "--:--"}
+                            </strong>
+                            <h4>{movie?.title ?? "Película pendiente"}</h4>
+                            <p className="weekly-print-session-meta">
                               {movie ? `${movie.durationMinutes} min` : "Sin duración"}
                               {endTime ? ` · Fin ${endTime}` : ""}
                               {movie?.director ? ` · Director/a: ${movie.director}` : ""}
@@ -97,12 +105,18 @@ export function WeeklyPrintView({
                                 {` · Mínimo ${conflict.minimumStartAt}`}
                               </p>
                             ) : null}
+                            <div className="weekly-print-notes" aria-hidden="true">
+                              <span />
+                              <span />
+                            </div>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <p className="weekly-print-empty">—</p>
+                    <div className="weekly-print-empty">
+                      <span>Sin sesiones</span>
+                    </div>
                   )}
                 </article>
               );

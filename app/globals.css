@@ -59,7 +59,7 @@ select {
 @media print {
   @page {
     size: A4 landscape;
-    margin: 9mm;
+    margin: 8mm;
   }
 
   @page fermin-pdf {
@@ -94,134 +94,193 @@ select {
     display: block;
     font-family: Arial, Helvetica, sans-serif;
     font-size: 10px;
-    line-height: 1.32;
-  }
-
-  .weekly-print-header {
-    align-items: baseline;
-    border-bottom: 2.5px solid #111111;
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 9px;
-    padding-bottom: 6px;
-  }
-
-  .weekly-print-header p {
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    margin: 0;
-  }
-
-  .weekly-print-header span {
-    font-size: 12px;
-    font-weight: 700;
+    line-height: 1.22;
   }
 
   .weekly-print-day {
-    break-inside: avoid;
-    margin-bottom: 9px;
-    page-break-inside: avoid;
+    box-sizing: border-box;
+    break-after: page;
+    display: flex;
+    flex-direction: column;
+    height: 194mm;
+    page-break-after: always;
   }
 
-  .weekly-print-day-context {
-    border-left: 3px solid #111111;
+  .weekly-print-page-header {
+    display: grid;
+    gap: 5mm;
+    grid-template-columns: 1fr 1.1fr;
+    margin-bottom: 4mm;
+  }
+
+  .weekly-print-brand,
+  .weekly-print-date {
+    align-items: center;
+    border: 1.4px solid #222222;
+    box-sizing: border-box;
+    display: flex;
+    height: 23mm;
+    justify-content: center;
+    padding: 2.5mm 4mm;
+  }
+
+  .weekly-print-brand {
+    flex-direction: column;
+    gap: 1.2mm;
+  }
+
+  .weekly-print-brand strong {
+    font-size: 23px;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    line-height: 1;
+  }
+
+  .weekly-print-brand span {
+    color: #444444;
     font-size: 8.5px;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    margin: 0 0 2px;
-    padding-left: 4px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
   }
 
-  .weekly-print-day h2 {
-    background: #efefef;
-    border: 1.4px solid #222222;
-    font-size: 12.5px;
+  .weekly-print-date {
+    gap: 2.5mm;
+    text-transform: uppercase;
+  }
+
+  .weekly-print-date strong {
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 0.035em;
+  }
+
+  .weekly-print-date span {
+    font-size: 16px;
     font-weight: 800;
-    margin: 0;
-    padding: 4px 6px;
   }
 
   .weekly-print-grid {
+    border-left: 1.2px solid #222222;
+    border-top: 1.2px solid #222222;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    flex: 1;
+    min-height: 0;
   }
 
   .weekly-print-room {
-    border-bottom: 1px solid #333333;
-    border-left: 1px solid #333333;
-    break-inside: avoid;
-    min-height: 68px;
-    page-break-inside: avoid;
-    padding: 0;
-  }
-
-  .weekly-print-room:last-child {
-    border-right: 1px solid #333333;
+    border-bottom: 1.2px solid #222222;
+    border-right: 1.2px solid #222222;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
   }
 
   .weekly-print-room h3 {
-    border-bottom: 1px solid #333333;
-    font-size: 11px;
-    font-weight: 800;
+    align-items: center;
+    background: #f0f0f0;
+    border-bottom: 1.2px solid #222222;
+    display: flex;
+    font-size: 16px;
+    font-weight: 900;
+    height: 12mm;
+    justify-content: center;
     margin: 0;
-    padding: 4px 4px;
+    padding: 0 2mm;
     text-align: center;
+    text-transform: uppercase;
   }
 
   .weekly-print-sessions {
     display: grid;
-    gap: 4px;
-    padding: 5px;
+    flex: 1;
+    min-height: 0;
   }
 
   .weekly-print-session {
-    break-inside: avoid;
-    border-bottom: 1px solid #d4d4d4;
-    page-break-inside: avoid;
-    padding-bottom: 4px;
+    border-bottom: 1px solid #777777;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 2.5mm 2.2mm 1.8mm;
+    text-align: center;
   }
 
   .weekly-print-session:last-child {
     border-bottom: 0;
-    padding-bottom: 0;
   }
 
-  .weekly-print-session-main {
-    display: grid;
-    gap: 5px;
-    grid-template-columns: 34px 1fr;
+  .weekly-print-session-time {
+    display: block;
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: 0.035em;
+    line-height: 1;
+    margin: 0;
   }
 
-  .weekly-print-session-main strong {
-    font-size: 11px;
-    font-weight: 800;
-  }
-
-  .weekly-print-session-main span {
-    font-size: 10.5px;
-    font-weight: 800;
+  .weekly-print-session h4 {
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1.1;
+    margin: 1.5mm 0 0;
+    overflow-wrap: anywhere;
     text-transform: uppercase;
   }
 
-  .weekly-print-session p {
-    font-size: 9.5px;
-    margin: 2px 0 0 39px;
+  .weekly-print-session-meta {
+    color: #333333;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1.15;
+    margin: 1.2mm 0 0;
+  }
+
+  .weekly-print-session-label {
+    border: 0.8px solid #555555;
+    display: inline-block;
+    font-size: 7.5px;
+    font-weight: 900;
+    margin: 1mm auto 0;
+    max-width: 100%;
+    padding: 0.6mm 1.2mm;
+    text-transform: uppercase;
   }
 
   .weekly-print-conflict {
     border: 1px solid #111111;
-    font-size: 9.5px;
-    font-weight: 800;
-    padding: 2px 3px;
+    font-size: 7px;
+    font-weight: 900;
+    line-height: 1.12;
+    margin: 1mm 0 0;
+    padding: 0.7mm 1mm;
     text-transform: uppercase;
   }
 
+  .weekly-print-notes {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 5mm;
+    padding-top: 1.5mm;
+  }
+
+  .weekly-print-notes span {
+    border-bottom: 0.6px solid #c5c5c5;
+    display: block;
+    height: 4.5mm;
+  }
+
   .weekly-print-empty {
+    align-items: center;
     color: #777777;
-    margin: 0;
-    padding: 8px 4px;
+    display: flex;
+    flex: 1;
+    font-size: 11px;
+    font-weight: 700;
+    justify-content: center;
     text-align: center;
   }
 
